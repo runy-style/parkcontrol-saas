@@ -3,14 +3,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Tariff, Vehicle, Transaction } from '@/lib/types'
+import { Tariff, Vehicle, Transaction, AuditEvent } from '@/lib/types'
 import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate } from '@/lib/utils'
 import {
   CarFront, BarChart3, DollarSign, Settings, LogOut, Plus,
   Clock, TrendingUp, Users, ChevronRight, AlertCircle, X, Download, MessageCircle,
   Search, Trash2
 } from 'lucide-react'
-import { createOperatorAction } from './actions'
+import { createOperatorAction, verifyAdminCredentialsAction, logAuditEventAction } from './actions'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Cell, AreaChart, Area
@@ -32,8 +32,8 @@ interface Props {
 
 
 // ─── Vehicle Card ────────────────────────────────────────────────────────────
-function VehicleCard({ vehicle, tariff, onCheckout }: {
-  vehicle: Vehicle; tariff: Tariff; onCheckout: (v: Vehicle, elapsed: number, fee: number) => void
+function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
+  vehicle: Vehicle; tariff: Tariff; onCheckout: (v: Vehicle, elapsed: number, fee: number) => void; onDelete: (v: Vehicle) => void
 }) {
   const [elapsed, setElapsed] = useState(Date.now() - new Date(vehicle.entry_at).getTime())
   useEffect(() => {
@@ -47,10 +47,19 @@ function VehicleCard({ vehicle, tariff, onCheckout }: {
 
   return (
     <div className="glass-card rounded-2xl p-5 flex flex-col gap-4 hover:-translate-y-1 transition-all duration-300">
-      <div className="flex items-center justify-between">
-        <span className="font-mono font-bold text-lg text-white tracking-wider bg-black/30 px-3 py-1.5 rounded-lg border border-white/10">
-          {vehicle.plate}
-        </span>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-bold text-lg text-white tracking-wider bg-black/30 px-3 py-1.5 rounded-lg border border-white/10">
+            {vehicle.plate}
+          </span>
+          <button
+            onClick={() => onDelete(vehicle)}
+            className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-2 rounded-lg transition-all"
+            title="Eliminar ingreso erróneo"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
         <span className={`text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 ${isOver
           ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20 animate-subtle-pulse'
           : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
@@ -83,21 +92,73 @@ function VehicleCard({ vehicle, tariff, onCheckout }: {
 }
 
 // ─── Checkout Modal ───────────────────────────────────────────────────────────
-function CheckoutModal({ vehicle, elapsed, fee, onConfirm, onClose }: {
-  vehicle: Vehicle; elapsed: number; fee: number; onConfirm: (paymentMethod: string) => void; onClose: () => void
+function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose }: {
+  vehicle: Vehicle
+  elapsed: number
+  fee: number
+  role: string
+  orgId: string
+  onConfirm: (paymentMethod: string, finalFee: number, reason?: string) => Promise<void>
+  onClose: () => void
 }) {
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('efectivo')
+  const [modifiedFee, setModifiedFee] = useState<number>(fee)
+  const [isEditingFee, setIsEditingFee] = useState(false)
+  const [reason, setReason] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleConfirm = async () => {
+    setError('')
+    const isFeeChanged = modifiedFee !== fee
+
+    if (isFeeChanged) {
+      if (!reason.trim() || reason.trim().length < 4) {
+        setError('Por favor, ingresa un motivo válido (mín. 4 caracteres).')
+        return
+      }
+      if (role === 'operator') {
+        if (!adminPassword) {
+          setError('Ingresa la contraseña de administrador.')
+          return
+        }
+        setLoading(true)
+        try {
+          const res = await verifyAdminCredentialsAction({ passwordStr: adminPassword, orgId })
+          if (!res.success) {
+            setError(res.error || 'Contraseña de administrador incorrecta.')
+            setLoading(false)
+            return
+          }
+        } catch (err: any) {
+          setError('Error al verificar contraseña de administrador.')
+          setLoading(false)
+          return
+        }
+      }
+    }
+
+    setLoading(true)
+    try {
+      await onConfirm(paymentMethod, modifiedFee, isFeeChanged ? reason.trim() : undefined)
+    } catch (err: any) {
+      setError('Error al procesar el cobro.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="glass-card rounded-2xl w-full max-w-sm animate-scale-up overflow-hidden">
+    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto animate-fade-in">
+      <div className="glass-card rounded-2xl w-full max-w-sm animate-scale-up overflow-hidden my-auto">
         <div className="bg-gradient-to-r from-amber-500/10 to-transparent p-6 border-b border-white/5 flex items-center gap-3">
           <span className="text-2xl">🏁</span>
           <div>
             <h2 className="font-black text-white">Finalizar Estadía</h2>
             <p className="text-xs text-zinc-500">Confirma el cobro</p>
           </div>
-          <button onClick={onClose} className="ml-auto text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} disabled={loading} className="ml-auto text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 flex flex-col gap-4">
           <div className="bg-black/30 border border-dashed border-white/10 rounded-xl p-4 flex flex-col gap-2.5">
@@ -113,9 +174,75 @@ function CheckoutModal({ vehicle, elapsed, fee, onConfirm, onClose }: {
                 <span className={`text-sm font-bold text-white ${mono ? 'font-mono' : ''}`}>{v}</span>
               </div>
             ))}
-            <div className="border-t border-dashed border-white/10 pt-2.5 flex justify-between items-center">
-              <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Total a Pagar</span>
-              <span className="text-2xl font-black text-amber-400">{formatCLP(fee)}</span>
+            
+            <div className="border-t border-dashed border-white/10 pt-2.5 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Total a Pagar</span>
+                <div className="flex items-center gap-2">
+                  {isEditingFee ? (
+                    <div className="relative flex items-center">
+                      <span className="absolute left-2 text-zinc-500 text-xs font-bold">$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={modifiedFee}
+                        onChange={e => {
+                          setModifiedFee(Number(e.target.value))
+                          setError('')
+                        }}
+                        className="w-24 bg-black/40 border border-amber-400/50 rounded-lg pl-5 pr-1.5 py-1 text-right text-xs font-black text-amber-400 focus:outline-none transition-all animate-fade-in"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-2xl font-black text-amber-400">{formatCLP(modifiedFee)}</span>
+                  )}
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingFee(!isEditingFee)
+                      setError('')
+                    }}
+                    className="text-zinc-500 hover:text-white transition-colors p-1 rounded hover:bg-white/5 text-[10px] font-bold flex items-center gap-0.5 border border-white/5"
+                  >
+                    {isEditingFee ? '✓ Ok' : '✍️ Editar'}
+                  </button>
+                </div>
+              </div>
+
+              {/* If fee is modified, show reason input and admin password if operator */}
+              {modifiedFee !== fee && (
+                <div className="flex flex-col gap-2 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 mt-1 animate-fade-in">
+                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    ⚠️ Autorización por cambio de tarifa
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Motivo del Ajuste (mín. 4 caracteres)</label>
+                    <textarea
+                      required
+                      rows={2}
+                      value={reason}
+                      onChange={e => { setReason(e.target.value); setError('') }}
+                      placeholder="Ej: Cobro manual acordado..."
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-amber-400/50 transition-all placeholder:text-zinc-600 resize-none text-zinc-100"
+                    />
+                  </div>
+                  
+                  {role === 'operator' && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Contraseña del Administrador</label>
+                      <input
+                        type="password"
+                        required
+                        value={adminPassword}
+                        onChange={e => { setAdminPassword(e.target.value); setError('') }}
+                        placeholder="Contraseña admin"
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-amber-400/50 transition-all placeholder:text-zinc-600 text-zinc-100"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -141,11 +268,20 @@ function CheckoutModal({ vehicle, elapsed, fee, onConfirm, onClose }: {
               ))}
             </div>
           </div>
+
+          {error && (
+            <div className="flex items-center gap-2 mt-1 text-xs text-red-400 animate-shake">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+            </div>
+          )}
         </div>
-        <div className="flex gap-3 px-6 pb-6">
-          <button onClick={onClose} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 font-bold py-3 rounded-xl text-sm transition-all">Cancelar</button>
-          <button onClick={() => onConfirm(paymentMethod)} className="flex-[1.5] bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3 rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20">
-            ✓ Confirmar Pago
+        
+        <div className="flex flex-col sm:flex-row gap-3 px-6 pb-6">
+          <button onClick={onClose} disabled={loading} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 font-bold py-3 rounded-xl text-sm transition-all order-2 sm:order-1">Cancelar</button>
+          <button onClick={handleConfirm} disabled={loading} className="flex-[1.5] flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3 rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 order-1 sm:order-2">
+            {loading ? (
+              <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+            ) : '✓ Confirmar Pago'}
           </button>
         </div>
       </div>
@@ -153,9 +289,127 @@ function CheckoutModal({ vehicle, elapsed, fee, onConfirm, onClose }: {
   )
 }
 
+// ─── Action Auth Modal ──────────────────────────────────────────────────────────
+function ActionAuthModal({ title, description, role, orgId, onConfirm, onClose }: {
+  title: string
+  description: string
+  role: string
+  orgId: string
+  onConfirm: (reason: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    
+    if (!reason.trim() || reason.trim().length < 4) {
+      setError('Por favor, ingresa un motivo válido (mín. 4 caracteres).')
+      return
+    }
+
+    setLoading(true)
+    try {
+      if (role === 'operator') {
+        if (!adminPassword) {
+          setError('Ingresa la contraseña de administrador.')
+          setLoading(false)
+          return
+        }
+        const res = await verifyAdminCredentialsAction({ passwordStr: adminPassword, orgId })
+        if (!res.success) {
+          setError(res.error || 'Contraseña de administrador incorrecta.')
+          setLoading(false)
+          return
+        }
+      }
+      
+      await onConfirm(reason.trim())
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Ocurrió un error inesperado.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto animate-fade-in" style={{ zIndex: 100 }}>
+      <div className="glass-card rounded-2xl w-full max-w-sm animate-scale-up overflow-hidden my-auto">
+        <div className="bg-gradient-to-r from-red-500/10 to-transparent p-6 border-b border-white/5 flex items-center gap-3">
+          <span className="text-2xl">🔑</span>
+          <div>
+            <h2 className="font-black text-white">{title}</h2>
+            <p className="text-xs text-zinc-500">Se requiere autorización</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={loading} className="ml-auto text-zinc-500 hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
+          <div className="text-xs text-zinc-400 bg-white/5 border border-white/5 rounded-xl p-3 leading-relaxed">
+            {description}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Motivo de la Acción (Obligatorio)</label>
+            <textarea
+              required
+              rows={3}
+              value={reason}
+              onChange={e => { setReason(e.target.value); setError('') }}
+              placeholder="Describa el motivo detalladamente..."
+              className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-bold focus:outline-none focus:border-amber-400/60 transition-all placeholder:text-zinc-600 resize-none text-zinc-100"
+            />
+          </div>
+
+          {role === 'operator' && (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Contraseña de Administrador</label>
+              <input
+                type="password"
+                required
+                value={adminPassword}
+                onChange={e => { setAdminPassword(e.target.value); setError('') }}
+                placeholder="••••••••"
+                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-bold focus:outline-none focus:border-amber-400/60 transition-all placeholder:text-zinc-600 text-zinc-100"
+              />
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 mt-1 text-sm text-red-400 animate-shake">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3 border-t border-white/5 pt-4 mt-2">
+            <button type="button" onClick={onClose} disabled={loading}
+              className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 font-bold py-3 rounded-xl text-sm transition-all order-2 sm:order-1">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading}
+              className="flex-[1.5] flex items-center justify-center gap-2 bg-gradient-to-r from-red-500 to-amber-500 hover:from-red-400 hover:to-amber-400 text-white font-black py-3 rounded-xl text-sm transition-all shadow-lg shadow-red-500/20 disabled:opacity-50 order-1 sm:order-2">
+              {loading ? (
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : '✓ Autorizar Acción'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 // ─── Shift Closure Modal ──────────────────────────────────────────────────────
-function ShiftClosureModal({ transactions, onConfirm, onClose }: {
-  transactions: Transaction[]; onConfirm: () => void; onClose: () => void
+function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
+  transactions: Transaction[]
+  auditEvents: AuditEvent[]
+  onConfirm: () => void
+  onClose: () => void
 }) {
   const total = transactions.reduce((s, t) => s + t.fee, 0)
   
@@ -170,7 +424,32 @@ function ShiftClosureModal({ transactions, onConfirm, onClose }: {
   const dateStr = formatDate(now.getTime())
   const timeStr = formatTime(now.getTime())
 
-  const receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${transactions.length}\nTotal Recaudado:  ${formatCLP(total)}\n\nDESGLOSE DE PAGOS:\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avg)}\nMayor Cobro:      ${formatCLP(max)}\n=====================================\nGenerado por ParkControl SaaS\n=====================================`
+  // Filter audit events of current active shift
+  const shiftAudits = auditEvents.filter(a => !a.closure_id)
+  const deletedVehicles = shiftAudits.filter(a => a.event_type === 'vehicle_deleted')
+  const modifiedFees = shiftAudits.filter(a => a.event_type === 'fee_modified')
+
+  let receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${transactions.length}\nTotal Recaudado:  ${formatCLP(total)}\n\nDESGLOSE DE PAGOS:\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avg)}\nMayor Cobro:      ${formatCLP(max)}\n`
+
+  if (shiftAudits.length > 0) {
+    receiptText += `\n=====================================\n        REGISTROS DE AUDITORÍA\n=====================================\n`
+    if (deletedVehicles.length > 0) {
+      receiptText += `ELIMINACIONES DEL TURNO:\n`
+      deletedVehicles.forEach(v => {
+        receiptText += `- Patente: ${v.plate}\n  Motivo: ${v.reason}\n`
+      })
+    }
+    if (modifiedFees.length > 0) {
+      if (deletedVehicles.length > 0) receiptText += `\n`
+      receiptText += `TARIFAS AJUSTADAS:\n`
+      modifiedFees.forEach(f => {
+        const diff = f.new_value - f.original_value
+        receiptText += `- Patente: ${f.plate}\n  Original: ${formatCLP(f.original_value)} -> Cobrado: ${formatCLP(f.new_value)} (${diff > 0 ? '+' : ''}${formatCLP(diff)})\n  Motivo: ${f.reason}\n`
+      })
+    }
+  }
+
+  receiptText += `=====================================\nGenerado por ParkControl SaaS\n=====================================`
 
   const handleDownload = () => {
     const a = document.createElement('a')
@@ -180,39 +459,65 @@ function ShiftClosureModal({ transactions, onConfirm, onClose }: {
   }
 
   const handleWhatsApp = () => {
-    const msg = `*📢 CIERRE DE CAJA - PARKCONTROL*\n──────────────────────────\n📅 *Fecha:* ${dateStr}\n⏰ *Hora:* ${timeStr}\n🚗 *Vehículos:* ${transactions.length}\n💰 *Total Recaudado:* ${formatCLP(total)}\n\n*💵 Desglose de Pagos:*\n💵 *Efectivo:* ${formatCLP(cashTotal)}\n💳 *Tarjeta:* ${formatCLP(cardTotal)}\n📱 *Transferencia:* ${formatCLP(transferTotal)}\n\n*📈 Estadísticas:*\n📈 *Promedio:* ${formatCLP(avg)}\n🏆 *Mayor Cobro:* ${formatCLP(max)}\n──────────────────────────\n_Generado por ParkControl_`
+    let msg = `*📢 CIERRE DE CAJA - PARKCONTROL*\n──────────────────────────\n📅 *Fecha:* ${dateStr}\n⏰ *Hora:* ${timeStr}\n🚗 *Vehículos:* ${transactions.length}\n💰 *Total Recaudado:* ${formatCLP(total)}\n\n*💵 Desglose de Pagos:*\n💵 *Efectivo:* ${formatCLP(cashTotal)}\n💳 *Tarjeta:* ${formatCLP(cardTotal)}\n📱 *Transferencia:* ${formatCLP(transferTotal)}`
+    
+    if (shiftAudits.length > 0) {
+      msg += `\n\n*⚠️ Auditoría e Incidencias del Turno:*\n`
+      if (deletedVehicles.length > 0) {
+        msg += `❌ *Vehículos Eliminados:* ${deletedVehicles.length}\n`
+      }
+      if (modifiedFees.length > 0) {
+        msg += `✍️ *Tarifas Modificadas:* ${modifiedFees.length}\n`
+      }
+    }
+    
+    msg += `\n*📈 Estadísticas:*\n📈 *Promedio:* ${formatCLP(avg)}\n🏆 *Mayor Cobro:* ${formatCLP(max)}\n──────────────────────────\n_Generado por ParkControl_`
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="glass-card rounded-2xl w-full max-w-sm animate-scale-up overflow-hidden">
-        <div className="bg-gradient-to-r from-emerald-500/10 to-transparent p-6 border-b border-white/5 flex items-center gap-3">
-          <span className="text-2xl">🔒</span>
-          <div>
-            <h2 className="font-black text-white">Cierre de Caja</h2>
-            <p className="text-xs text-zinc-500">Resumen del turno</p>
+      <div className="glass-card rounded-2xl w-full max-w-sm flex flex-col max-h-[85vh] sm:max-h-[80vh] animate-scale-up overflow-hidden my-auto">
+        <div className="flex-shrink-0 bg-gradient-to-r from-emerald-500/10 to-transparent p-5 border-b border-white/5 flex items-center gap-3">
+          <span className="text-xl flex-shrink-0">🔒</span>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-black text-white text-base leading-tight truncate">Cierre de Caja</h2>
+            <p className="text-[10px] text-zinc-500 truncate">Resumen del turno</p>
           </div>
-          <button onClick={onClose} className="ml-auto text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              onClick={handleDownload}
+              title="Descargar TXT"
+              className="text-zinc-400 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleWhatsApp}
+              title="Enviar a WhatsApp"
+              className="text-[#25D366] hover:text-white p-2 rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/20 transition-all"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onClose}
+              title="Cerrar"
+              className="text-zinc-500 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="p-5">
-          <pre className="bg-black/40 border border-white/10 rounded-xl p-4 text-emerald-400 font-mono text-xs leading-relaxed overflow-x-auto h-64">{receiptText}</pre>
-        </div>
-        <div className="flex flex-col gap-2 px-5 pb-5">
-          <div className="flex gap-2">
-            <button onClick={handleDownload} className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 font-bold py-2.5 rounded-xl text-xs transition-all">
-              <Download className="w-3.5 h-3.5" /> Descargar TXT
-            </button>
-            <button onClick={handleWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/20 text-[#25D366] font-bold py-2.5 rounded-xl text-xs transition-all">
-              <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-500 font-bold py-2.5 rounded-xl text-xs transition-all">Cancelar</button>
-            <button onClick={onConfirm} className="flex-1 flex items-center justify-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-bold py-2.5 rounded-xl text-xs transition-all">
-              🔑 Guardar Cierre y Reiniciar
-            </button>
-          </div>
+        
+        <pre className="flex-1 bg-black/40 border border-white/10 rounded-xl p-3 text-emerald-400 font-mono text-[10px] leading-relaxed overflow-auto scrollbar-thin select-text m-4">
+          {receiptText}
+        </pre>
+        
+        <div className="flex-shrink-0 flex gap-2.5 px-4 pb-4 border-t border-white/5 bg-black/20 pt-3">
+          <button onClick={onClose} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 font-extrabold py-3 rounded-xl text-xs transition-all">Cancelar</button>
+          <button onClick={onConfirm} className="flex-[1.8] flex items-center justify-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-extrabold py-3 rounded-xl text-xs transition-all shadow-lg shadow-emerald-500/15">
+            🔑 Guardar Cierre y Reiniciar
+          </button>
         </div>
       </div>
     </div>
@@ -231,12 +536,14 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   const [plateInput, setPlateInput] = useState('')
   const [error, setError] = useState('')
   const [checkout, setCheckout] = useState<{ vehicle: Vehicle; elapsed: number; fee: number } | null>(null)
+  const [deletingVehicle, setDeletingVehicle] = useState<Vehicle | null>(null)
   const [closureOpen, setClosureOpen] = useState(false)
   const [txFilter, setTxFilter] = useState('shift')
   const [loadingAdd, setLoadingAdd] = useState(false)
   const [savingTariff, setSavingTariff] = useState(false)
   const [tariffSaved, setTariffSaved] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
 
   // User Management State
   const [users, setUsers] = useState<any[]>([])
@@ -253,6 +560,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     const queries: any[] = [
       supabase.from('vehicles').select('*').eq('organization_id', orgId).order('entry_at', { ascending: true }),
       supabase.from('transactions').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }),
+      supabase.from('audit_events').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }),
     ]
     if (profile.role === 'admin') {
       queries.push(
@@ -262,8 +570,9 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     const results = await Promise.all(queries)
     setVehicles(results[0].data || [])
     setTransactions(results[1].data || [])
-    if (profile.role === 'admin' && results[2]) {
-      setUsers(results[2].data || [])
+    setAuditEvents(results[2].data || [])
+    if (profile.role === 'admin' && results[3]) {
+      setUsers(results[3].data || [])
     }
   }, [orgId, supabase, profile.role])
 
@@ -274,6 +583,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     const ch = supabase.channel(`org-${orgId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${orgId}` }, loadData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `organization_id=eq.${orgId}` }, loadData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_events', filter: `organization_id=eq.${orgId}` }, loadData)
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [orgId, supabase, loadData])
@@ -304,25 +614,60 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
 
   const openCheckout = (vehicle: Vehicle, elapsed: number, fee: number) => setCheckout({ vehicle, elapsed, fee })
 
-  const confirmCheckout = async (paymentMethod: string) => {
+  const confirmCheckout = async (paymentMethod: string, finalFee: number, reason?: string) => {
     if (!checkout) return
-    const { vehicle, fee } = checkout
+    const { vehicle, fee: calculatedFee } = checkout
     const { error: insError } = await supabase.from('transactions').insert({
       organization_id: orgId, plate: vehicle.plate, entry_at: vehicle.entry_at,
-      exit_at: new Date().toISOString(), fee, operator_id: profile.id,
+      exit_at: new Date().toISOString(), fee: finalFee, operator_id: profile.id,
       payment_method: paymentMethod,
     })
     if (insError) {
       console.error('Error saving transaction:', insError)
-      return
+      throw insError
     }
     const { error: delError } = await supabase.from('vehicles').delete().eq('id', vehicle.id)
     if (delError) {
       console.error('Error deleting vehicle:', delError)
-      return
+      throw delError
     }
+
+    if (reason) {
+      await logAuditEventAction({
+        orgId,
+        eventType: 'fee_modified',
+        plate: vehicle.plate,
+        originalValue: calculatedFee,
+        newValue: finalFee,
+        reason,
+        operatorId: profile.id
+      })
+    }
+
     setCheckout(null)
     await loadData() // Actualizar inmediatamente el estado local
+  }
+
+  const executeDeleteVehicle = async (reason: string) => {
+    if (!deletingVehicle) return
+    const { error: delError } = await supabase.from('vehicles').delete().eq('id', deletingVehicle.id)
+    if (delError) {
+      console.error('Error deleting vehicle:', delError)
+      throw delError
+    }
+
+    await logAuditEventAction({
+      orgId,
+      eventType: 'vehicle_deleted',
+      plate: deletingVehicle.plate,
+      originalValue: 0,
+      newValue: 0,
+      reason,
+      operatorId: profile.id
+    })
+
+    setDeletingVehicle(null)
+    await loadData()
   }
 
   const saveTariff = async (t: Tariff) => {
@@ -357,7 +702,31 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     const cardTotal = activeTx.filter(t => t.payment_method === 'tarjeta').reduce((s, t) => s + t.fee, 0)
     const transferTotal = activeTx.filter(t => t.payment_method === 'transferencia').reduce((s, t) => s + t.fee, 0)
 
-    const receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${activeTx.length}\nTotal Recaudado:  ${formatCLP(totalActive)}\n\nDESGLOSE DE PAGOS:\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avgActive)}\nMayor Cobro:      ${formatCLP(maxActive)}\n=====================================\nGenerado por ParkControl SaaS\n=====================================`
+    const activeAudit = auditEvents.filter(a => !a.closure_id)
+    const deletedVehicles = activeAudit.filter(a => a.event_type === 'vehicle_deleted')
+    const modifiedFees = activeAudit.filter(a => a.event_type === 'fee_modified')
+
+    let receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${activeTx.length}\nTotal Recaudado:  ${formatCLP(totalActive)}\n\nDESGLOSE DE PAGOS:\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avgActive)}\nMayor Cobro:      ${formatCLP(maxActive)}\n`
+
+    if (activeAudit.length > 0) {
+      receiptText += `\n=====================================\n        REGISTROS DE AUDITORÍA\n=====================================\n`
+      if (deletedVehicles.length > 0) {
+        receiptText += `ELIMINACIONES DEL TURNO:\n`
+        deletedVehicles.forEach(v => {
+          receiptText += `- Patente: ${v.plate}\n  Motivo: ${v.reason}\n`
+        })
+      }
+      if (modifiedFees.length > 0) {
+        if (deletedVehicles.length > 0) receiptText += `\n`
+        receiptText += `TARIFAS AJUSTADAS:\n`
+        modifiedFees.forEach(f => {
+          const diff = f.new_value - f.original_value
+          receiptText += `- Patente: ${f.plate}\n  Original: ${formatCLP(f.original_value)} -> Cobrado: ${formatCLP(f.new_value)} (${diff > 0 ? '+' : ''}${formatCLP(diff)})\n  Motivo: ${f.reason}\n`
+        })
+      }
+    }
+
+    receiptText += `=====================================\nGenerado por ParkControl SaaS\n=====================================`
 
     // 1. Guardar en la tabla shift_closures
     const { data: closure, error: closureErr } = await supabase.from('shift_closures').insert({
@@ -384,6 +753,17 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     if (updateErr) {
       alert(`Error al vincular las transacciones al cierre: ${updateErr.message}`)
       return
+    }
+
+    // 3. Vincular eventos de auditoría al cierre
+    const activeAuditIds = activeAudit.map(a => a.id)
+    if (activeAuditIds.length > 0) {
+      const { error: updateAuditErr } = await supabase.from('audit_events')
+        .update({ closure_id: closure.id })
+        .in('id', activeAuditIds)
+      if (updateAuditErr) {
+        console.error('Error linking audit events to closure:', updateAuditErr)
+      }
     }
 
     setClosureOpen(false)
@@ -634,7 +1014,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredVehicles.map(v => <VehicleCard key={v.id} vehicle={v} tariff={tariff} onCheckout={openCheckout} />)}
+                  {filteredVehicles.map(v => <VehicleCard key={v.id} vehicle={v} tariff={tariff} onCheckout={openCheckout} onDelete={setDeletingVehicle} />)}
                 </div>
               )}
             </div>
@@ -901,12 +1281,37 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       </main>
 
       {/* Modals */}
-      {checkout && <CheckoutModal {...checkout} onConfirm={confirmCheckout} onClose={() => setCheckout(null)} />}
-      {closureOpen && <ShiftClosureModal transactions={transactions.filter(t => !t.closure_id)} onConfirm={closeClosure} onClose={() => setClosureOpen(false)} />}
+      {checkout && (
+        <CheckoutModal
+          {...checkout}
+          role={profile.role}
+          orgId={orgId}
+          onConfirm={confirmCheckout}
+          onClose={() => setCheckout(null)}
+        />
+      )}
+      {closureOpen && (
+        <ShiftClosureModal
+          transactions={transactions.filter(t => !t.closure_id)}
+          auditEvents={auditEvents}
+          onConfirm={closeClosure}
+          onClose={() => setClosureOpen(false)}
+        />
+      )}
+      {deletingVehicle && (
+        <ActionAuthModal
+          title="Eliminar Vehículo Erróneo"
+          description={`¿Estás seguro de que deseas eliminar el ingreso de la patente ${deletingVehicle.plate}? Esta acción es irreversible y se registrará en la auditoría del turno.`}
+          role={profile.role}
+          orgId={orgId}
+          onConfirm={executeDeleteVehicle}
+          onClose={() => setDeletingVehicle(null)}
+        />
+      )}
 
       {addUserOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="glass-card rounded-2xl w-full max-w-md animate-scale-up overflow-hidden">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto animate-fade-in">
+          <div className="glass-card rounded-2xl w-full max-w-md animate-scale-up overflow-hidden my-auto">
             <div className="bg-gradient-to-r from-amber-500/10 to-transparent p-6 border-b border-white/5 flex items-center gap-3">
               <span className="text-2xl">👤</span>
               <div>

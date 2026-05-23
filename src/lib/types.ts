@@ -46,3 +46,16 @@ export interface Transaction {
   payment_method?: string
   closure_id?: string | null
 }
+
+export interface AuditEvent {
+  id: string
+  organization_id: string
+  event_type: 'vehicle_deleted' | 'fee_modified'
+  plate: string
+  original_value: number
+  new_value: number
+  reason: string
+  operator_id: string | null
+  created_at: string
+  closure_id?: string | null
+}

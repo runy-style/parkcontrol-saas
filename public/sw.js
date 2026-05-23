@@ -36,6 +36,17 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
+  // For navigation requests (page loads), always fetch from network to handle redirects correctly.
+  // Fall back to cached root page if completely offline.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return caches.match('/');
+      })
+    );
+    return;
+  }
+
   // Skip supabase APIs, internal hot-reloads, and other non-static assets
   if (
     url.pathname.startsWith('/_next/webpack-hmr') ||
