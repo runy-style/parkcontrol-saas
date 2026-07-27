@@ -1408,8 +1408,13 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
             </div>
           </div>
         )}
-        </div>
-      </main>
+
+        {/* Footer inside Main Content */}
+        <footer className="w-full mt-12 pt-6 border-t border-white/5 text-center text-xs text-zinc-500">
+          ParkControl SaaS · {profile.org_name} · {new Date().getFullYear()}
+        </footer>
+      </div>
+    </main>
 
       {/* Modals */}
       {checkout && (
@@ -1522,10 +1527,6 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           </div>
         </div>
       )}
-
-      <footer className="z-10 py-5 border-t border-white/5 text-center text-xs text-zinc-700">
-        ParkControl SaaS · {profile.org_name} · {new Date().getFullYear()}
-      </footer>
     </div>
   )
 }
