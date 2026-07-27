@@ -8,7 +8,7 @@ import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate 
 import {
   CarFront, BarChart3, DollarSign, Settings, LogOut, Plus,
   Clock, TrendingUp, Users, ChevronRight, AlertCircle, X, Download, MessageCircle,
-  Search, Trash2
+  Search, Trash2, Menu, Lock
 } from 'lucide-react'
 import { createOperatorAction, verifyAdminCredentialsAction, logAuditEventAction } from './actions'
 import {
@@ -530,6 +530,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   const supabase = createClient()
   const orgId = profile.organization_id
   const [tab, setTab] = useState('parking')
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [tariff, setTariff] = useState<Tariff>(initialTariff)
@@ -873,50 +874,178 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   ]
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
-      {/* Background */}
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col md:flex-row relative overflow-x-hidden">
+      {/* Ambient background lighting */}
       <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-amber-500/3 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-sky-500/3 rounded-full blur-3xl" />
+        <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-sky-500/5 rounded-full blur-3xl" />
       </div>
 
-      {/* Sticky Header & Nav Container */}
-      <div className="sticky top-0 z-30 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5 shadow-2xl">
-        {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-amber-600 rounded-xl flex items-center justify-center font-black text-black text-base shadow-lg shadow-amber-500/20">P</div>
-            <div>
-              <p className="font-bold text-white text-sm leading-tight">{profile.org_name || 'ParkControl'}</p>
-              <p className="text-[10px] text-zinc-500 capitalize">{profile.role === 'admin' ? 'Administrador' : 'Operador'} · {profile.full_name}</p>
+      {/* Mobile Top Header (< 768px) */}
+      <header className="md:hidden sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-2 rounded-xl bg-white/5 text-zinc-300 hover:text-white border border-white/10"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center font-black text-black text-sm shadow-md">
+              P
             </div>
+            <span className="font-bold text-white text-sm truncate max-w-[160px]">
+              {profile.org_name || 'ParkControl'}
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 bg-white/3 border border-white/5 px-3 py-1.5 rounded-full">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-glow" />
-              EN VIVO · {vehicles.length} auto{vehicles.length !== 1 ? 's' : ''}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            {vehicles.length}
+          </div>
+          <button
+            onClick={handleLogout}
+            className="text-zinc-500 hover:text-red-400 p-2 rounded-lg"
+            title="Cerrar Sesión"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* Independent Left Sidebar */}
+      <aside
+        className={`fixed md:sticky top-0 left-0 z-40 h-screen w-72 bg-zinc-950/95 md:bg-zinc-950/85 border-r border-white/10 backdrop-blur-2xl p-5 flex flex-col justify-between transition-transform duration-300 ${
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        {/* Top Branding & Status */}
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-600 rounded-xl flex items-center justify-center font-black text-black text-lg shadow-lg shadow-amber-500/25">
+                P
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-white text-sm leading-tight truncate">
+                  {profile.org_name || 'ParkControl'}
+                </p>
+                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">
+                  SaaS Estacionamiento
+                </p>
+              </div>
             </div>
-            <button onClick={handleLogout} className="text-zinc-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-500/10">
+
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="md:hidden text-zinc-400 hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Live Counter Badge */}
+          <div className="bg-black/40 border border-white/5 rounded-2xl p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-glow" />
+              <span>EN VIVO</span>
+            </div>
+            <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-lg border border-emerald-500/20">
+              {vehicles.length} vehículo{vehicles.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Vertical Navigation Items */}
+          <nav className="flex flex-col gap-1.5 my-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 px-3 mb-1">
+              Menú Principal
+            </span>
+            {tabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => {
+                  setTab(id)
+                  setIsMobileMenuOpen(false)
+                }}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 text-left ${
+                  tab === id
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-lg shadow-amber-500/25 font-black scale-[1.02]'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Icon className={`w-5 h-5 ${tab === id ? 'text-black' : 'text-zinc-400'}`} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Sidebar Footer (User Info + Shift Closure + Logout) */}
+        <div className="flex flex-col gap-3 pt-4 border-t border-white/10">
+          <button
+            onClick={() => {
+              setClosureOpen(true)
+              setIsMobileMenuOpen(false)
+            }}
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500/15 to-emerald-600/10 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 font-bold py-2.5 px-3 rounded-xl text-xs transition-all shadow-md"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>Cierre de Caja del Turno</span>
+          </button>
+
+          <div className="flex items-center justify-between bg-black/30 border border-white/5 rounded-2xl p-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center font-bold text-amber-400 text-xs flex-shrink-0">
+                {profile.full_name.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-white truncate">{profile.full_name}</p>
+                <p className="text-[10px] text-zinc-500 capitalize">
+                  {profile.role === 'admin' ? 'Administrador' : 'Operador'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleLogout}
+              title="Cerrar Sesión"
+              className="text-zinc-500 hover:text-red-400 p-2 rounded-xl hover:bg-red-500/10 transition-colors flex-shrink-0"
+            >
               <LogOut className="w-4 h-4" />
             </button>
           </div>
-        </header>
+        </div>
+      </aside>
 
-        {/* Nav - Centered, Larger, Premium */}
-        <nav className="flex justify-center gap-2 px-6 py-3.5 overflow-x-auto bg-black/20">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setTab(id)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-base font-extrabold whitespace-nowrap transition-all duration-200 ${tab === id
-                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-lg shadow-amber-500/25 scale-105'
-                : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}>
-              <Icon className="w-5 h-5" />{label}
+      {/* Main Content View Container */}
+      <main className="flex-1 min-h-screen p-4 sm:p-6 md:p-10 z-10 relative overflow-y-auto w-full">
+        {/* Top View Subheader */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-8 pb-4 border-b border-white/5">
+          <div>
+            <h1 className="text-2xl font-black text-white capitalize">
+              {tabs.find((t) => t.id === tab)?.label || 'Estacionamiento'}
+            </h1>
+            <p className="text-xs text-zinc-400">
+              {tab === 'parking' && 'Gestión de entrada, salida y cobro al segundo'}
+              {tab === 'dashboard' && 'Estadísticas de flujo vehicular y horas pico'}
+              {tab === 'finance' && 'Resumen financiero, arqueo de caja e historial'}
+              {tab === 'users' && 'Gestión de cajeros y roles de operador'}
+              {tab === 'settings' && 'Configuración de tarifa base y minutos adicionales'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setClosureOpen(true)}
+              className="hidden sm:flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-bold text-xs px-4 py-2 rounded-xl transition-all"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              Cierre de Turno
             </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Main */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 md:py-10 z-10 relative">
+          </div>
+        </div>
 
         {/* ── PARKING TAB ── */}
         {tab === 'parking' && (() => {
