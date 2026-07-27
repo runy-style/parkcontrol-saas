@@ -70,5 +70,44 @@ body {
 }
 
 .glass-card:hover {
-  border-color: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 14px 35px -10px rgba(245, 158, 11, 0.12), 0 1px 1px 0 rgba(255, 255, 255, 0.1) inset;
 }
+
+/* Perspective 1000 */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+/* Lenis Rules */
+html.lenis, html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+/* Metallic Text Gradient */
+.text-gradient-amber {
+  background: linear-gradient(135deg, #FFFFFF 0%, #FBBF24 50%, #D97706 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Floating Ambient Orbs */
+@keyframes orb-float {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, -40px) scale(1.08); }
+  100% { transform: translate(-20px, 30px) scale(0.95); }
+}
+
+.ambient-orb {
+  animation: orb-float 16s ease-in-out infinite alternate;
+}
+
