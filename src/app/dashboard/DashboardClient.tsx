@@ -1020,8 +1020,9 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       </aside>
 
       {/* Main Content View Container */}
-      <main className="flex-1 min-h-screen p-4 sm:p-6 md:p-10 z-10 relative overflow-y-auto w-full">
-        {/* Top View Subheader */}
+      <main className="flex-1 min-h-screen p-4 sm:p-6 md:p-8 lg:p-10 z-10 relative overflow-y-auto w-full flex flex-col items-center">
+        <div className="w-full max-w-5xl mx-auto flex flex-col gap-6">
+          {/* Top View Subheader */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl font-black text-white capitalize">
@@ -1407,6 +1408,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
             </div>
           </div>
         )}
+        </div>
       </main>
 
       {/* Modals */}
