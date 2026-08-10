@@ -44,3 +44,15 @@ export function formatDate(date: string | number): string {
 export function formatPlate(input: string): string {
   return input.toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
+
+export function getURL(path: string = ''): string {
+  let url =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : null) ??
+    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
+
+  url = url.endsWith('/') ? url : `${url}/`
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path
+  return `${url}${cleanPath}`
+}
+
