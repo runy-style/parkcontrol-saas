@@ -1,21 +1,44 @@
-import { NextResponse } from 'next/server'
+import { type EmailOtpType } from '@supabase/supabase-js'
+import { type NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url)
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const token_hash = searchParams.get('token_hash')
+  const type = searchParams.get('type') as EmailOtpType | null
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/reset-password'
 
-  if (code) {
-    const supabase = await createClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    
+  const redirectTo = request.nextUrl.clone()
+  redirectTo.pathname = next
+  redirectTo.searchParams.delete('code')
+  redirectTo.searchParams.delete('token_hash')
+  redirectTo.searchParams.delete('type')
+  redirectTo.searchParams.delete('next')
+
+  const supabase = await createClient()
+
+  // 1. Procesar token_hash (para enlaces de verificación/recovery OTP de Supabase)
+  if (token_hash && type) {
+    const { error } = await supabase.auth.verifyOtp({
+      type,
+      token_hash,
+    })
     if (!error) {
-      const forwardUrl = `${origin}${next}`
-      return NextResponse.redirect(forwardUrl)
+      return NextResponse.redirect(redirectTo)
     }
   }
 
-  // Redirigir a login con mensaje de error si el token expiró o fue inválido
-  return NextResponse.redirect(`${origin}/login?error=Invalid%20or%20expired%20recovery%20link`)
+  // 2. Procesar código PKCE
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      return NextResponse.redirect(redirectTo)
+    }
+  }
+
+  // Si falló el token o código, redirigir a login con mensaje de error claro
+  redirectTo.pathname = '/login'
+  redirectTo.searchParams.set('error', 'El enlace de recuperación es inválido o ha expirado. Por favor solicita uno nuevo.')
+  return NextResponse.redirect(redirectTo)
 }

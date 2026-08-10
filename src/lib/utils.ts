@@ -46,10 +46,18 @@ export function formatPlate(input: string): string {
 }
 
 export function getURL(path: string = ''): string {
-  let url =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : null) ??
-    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
+  let url = ''
+
+  if (typeof window !== 'undefined' && window.location.origin) {
+    url = window.location.origin
+  } else if (process.env.NEXT_PUBLIC_SITE_URL) {
+    url = process.env.NEXT_PUBLIC_SITE_URL
+  } else if (process.env.NEXT_PUBLIC_VERCEL_URL) {
+    const vercelUrl = process.env.NEXT_PUBLIC_VERCEL_URL
+    url = vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`
+  } else {
+    url = 'http://localhost:3000'
+  }
 
   url = url.endsWith('/') ? url : `${url}/`
   const cleanPath = path.startsWith('/') ? path.slice(1) : path

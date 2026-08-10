@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Eye, EyeOff, Lock, CheckCircle2, ShieldCheck, ArrowRight } from 'lucide-react'
 
+import { type EmailOtpType } from '@supabase/supabase-js'
+
 export default function ResetPasswordPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -20,13 +22,33 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    // Check if session exists or listen for password recovery event
     const checkUser = async () => {
+      // 1. Verificar si hay token_hash o code en la URL directamente
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search)
+        const token_hash = searchParams.get('token_hash')
+        const type = searchParams.get('type') as EmailOtpType | null
+        const code = searchParams.get('code')
+
+        if (token_hash && type) {
+          const { error: otpError } = await supabase.auth.verifyOtp({ token_hash, type })
+          if (otpError) {
+            setError('El enlace de recuperación es inválido o ha expirado. Por favor solicita uno nuevo.')
+          }
+        } else if (code) {
+          const { error: codeError } = await supabase.auth.exchangeCodeForSession(code)
+          if (codeError) {
+            setError('El enlace de recuperación es inválido o ha expirado. Por favor solicita uno nuevo.')
+          }
+        }
+      }
+
+      // 2. Verificar la sesión activa resultante
       const { data: { session } } = await supabase.auth.getSession()
       setCheckingSession(false)
+
       if (!session) {
-        // If no session, check if hash contains access_token from older implicit flow
-        const hash = window.location.hash
+        const hash = typeof window !== 'undefined' ? window.location.hash : ''
         if (!hash || !hash.includes('access_token')) {
           setError('El enlace de recuperación es inválido o ha expirado. Por favor solicita uno nuevo.')
         }
