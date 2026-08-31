@@ -32,7 +32,7 @@ interface Props {
 }
 
 
-// ─── Vehicle Card ────────────────────────────────────────────────────────────
+// ─── Vehicle Card (50% Plate | 25% Entry & Elapsed Time | 25% Accumulated Fee) ───
 function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
   vehicle: Vehicle; tariff: Tariff; onCheckout: (v: Vehicle, elapsed: number, fee: number) => void; onDelete: (v: Vehicle) => void
 }) {
@@ -47,59 +47,80 @@ function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
   const isOver = mins > tariff.base_minutes
 
   return (
-    <div className="glass-card rounded-2xl p-5 flex flex-col justify-between gap-4 hover:-translate-y-1 transition-all duration-300 border border-white/10 hover:border-amber-400/40 group shadow-lg">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className="plate-badge px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/15 shadow-inner">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="font-mono font-black text-xl text-white tracking-widest uppercase">
-              {vehicle.plate}
+    <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-3.5 hover:-translate-y-1 transition-all duration-300 border border-white/10 hover:border-amber-400/40 group shadow-lg bg-zinc-900/90">
+      
+      {/* Upper Data Grid (50% - 25% - 25%) */}
+      <div className="flex items-stretch justify-between gap-2">
+        
+        {/* 50% Left Section: Plate, Delete button & Status badge */}
+        <div className="w-1/2 flex flex-col justify-between gap-2 pr-2.5 border-r border-white/10">
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+              <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase truncate leading-none">
+                {vehicle.plate}
+              </span>
+            </div>
+            
+            <button
+              onClick={() => onDelete(vehicle)}
+              className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-1.5 rounded-lg transition-all flex-shrink-0"
+              title="Eliminar ingreso erróneo"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div>
+            <span className={`inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full ${isOver
+              ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30 animate-subtle-pulse'
+              : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+              {isOver ? 'Tiempo Extra' : 'En Curso'}
             </span>
           </div>
-          <button
-            onClick={() => onDelete(vehicle)}
-            className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-2 rounded-xl transition-all"
-            title="Eliminar ingreso erróneo"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
         </div>
-        
-        <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full flex items-center gap-1.5 ${isOver
-          ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30 animate-subtle-pulse'
-          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
-          <span className="w-2 h-2 rounded-full bg-current" />
-          {isOver ? 'Tiempo Extra' : 'En Curso'}
-        </span>
+
+        {/* 25% Center Section: Entry time and Elapsed time */}
+        <div className="w-1/4 flex flex-col justify-between gap-1 px-2 border-r border-white/10 text-left">
+          <div className="flex flex-col">
+            <span className="text-[9px] font-black text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+              <Timer className="w-2.5 h-2.5 text-zinc-400" /> Ingreso
+            </span>
+            <span className="text-xs sm:text-sm font-bold text-zinc-200 font-mono truncate leading-tight">
+              {formatTime(vehicle.entry_at)}
+            </span>
+          </div>
+
+          <div className="flex flex-col">
+            <span className="text-[9px] font-black text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5 text-zinc-400" /> Tiempo
+            </span>
+            <span className="text-xs sm:text-sm font-black text-white font-mono truncate leading-tight">
+              {formatElapsed(elapsed)}
+            </span>
+          </div>
+        </div>
+
+        {/* 25% Right Section: Large accumulated fee */}
+        <div className="w-1/4 flex flex-col items-end justify-center pl-2 text-right">
+          <span className="text-[9px] font-black text-amber-400/80 uppercase tracking-wider mb-0.5">
+            Valor
+          </span>
+          <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight drop-shadow-md leading-none">
+            {formatCLP(fee)}
+          </span>
+        </div>
+
       </div>
 
-      <div className="grid grid-cols-3 gap-2.5 bg-black/30 rounded-2xl p-3.5 border border-white/5">
-        <div className="flex flex-col">
-          <span className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider mb-0.5 flex items-center gap-1">
-            <Clock className="w-3 h-3 text-zinc-500" /> Tiempo
-          </span>
-          <span className="text-sm font-bold text-white font-mono">{formatElapsed(elapsed)}</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider mb-0.5 flex items-center gap-1">
-            <Timer className="w-3 h-3 text-zinc-500" /> Ingreso
-          </span>
-          <span className="text-sm font-bold text-zinc-300 font-mono">{formatTime(vehicle.entry_at)}</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] font-extrabold text-amber-400/80 uppercase tracking-wider mb-0.5 flex items-center gap-1">
-            <DollarSign className="w-3 h-3 text-amber-400" /> Cobro
-          </span>
-          <span className="text-base font-black text-amber-400 font-mono tracking-tight">{formatCLP(fee)}</span>
-        </div>
-      </div>
-
+      {/* Full-width Action Button */}
       <button
         onClick={() => onCheckout(vehicle, elapsed, fee)}
-        className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-amber-400/15 to-amber-500/10 hover:from-amber-400 hover:to-amber-500 hover:text-black border border-amber-400/30 hover:border-amber-400 text-amber-400 font-black text-sm py-3.5 px-4 rounded-xl transition-all duration-200 shadow-md group-hover:shadow-amber-500/10"
+        className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-amber-400/20 via-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black text-sm sm:text-base py-3 sm:py-3.5 px-4 rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/10 active:scale-[0.98] cursor-pointer"
       >
         <span>Finalizar y Cobrar</span>
-        <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+        <ChevronRight className="w-4 h-4 stroke-[3]" />
       </button>
     </div>
   )
@@ -1219,44 +1240,52 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
 
               {/* SECTION 2: SCROLLABLE ACTIVE VEHICLES SECTION */}
               <section className="flex flex-col gap-3.5">
-                {/* Section Sub-header & Search */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/30 p-3 rounded-2xl border border-white/5">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-lg">🚗</span>
+                {/* Search Bar - Prominent & Big for Mobile and Desktop */}
+                <div className="flex flex-col gap-2.5">
+                  <div className="relative flex items-center w-full group">
+                    <Search className="absolute left-4 w-5 h-5 text-amber-400 pointer-events-none group-focus-within:scale-110 transition-transform" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(formatPlate(e.target.value))}
+                      placeholder="BUSCAR O FILTRAR PATENTE..."
+                      className="w-full bg-black/70 border-2 border-white/20 focus:border-amber-400 rounded-2xl pl-12 pr-12 py-3.5 sm:py-4 text-sm sm:text-base text-white focus:outline-none focus:ring-2 focus:ring-amber-400/20 transition-all uppercase placeholder:normal-case placeholder:text-zinc-500 font-mono font-black tracking-widest placeholder:font-sans placeholder:font-bold placeholder:tracking-normal shadow-lg"
+                    />
+                    {searchQuery ? (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3.5 text-zinc-400 hover:text-white p-1.5 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
+                        title="Limpiar búsqueda"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <span className="absolute right-4 text-xs font-black text-zinc-500 uppercase tracking-wider hidden sm:block">
+                        {vehicles.length} vehículo{vehicles.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Subheader info line */}
+                  <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm sm:text-base font-black text-white">Vehículos Estacionados</h3>
+                      <span className="text-sm font-black text-white">Vehículos Estacionados</span>
                       <span className="bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-2.5 py-0.5 rounded-full text-xs font-black flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         {vehicles.length} activo{vehicles.length !== 1 ? 's' : ''}
                       </span>
                     </div>
-                  </div>
 
-                  {/* Fast Search Bar */}
-                  {vehicles.length > 0 && (
-                    <div className="relative flex items-center w-full sm:max-w-xs">
-                      <Search className="absolute left-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(formatPlate(e.target.value))}
-                        placeholder="Buscar patente..."
-                        className="w-full bg-black/50 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400/60 focus:ring-1 focus:ring-amber-400/20 transition-all uppercase placeholder:normal-case placeholder:text-zinc-500 font-mono font-bold tracking-wider placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
-                      />
-                      {searchQuery && (
-                        <button
-                          onClick={() => setSearchQuery('')}
-                          className="absolute right-3 text-zinc-500 hover:text-white transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
+                    {searchQuery && (
+                      <span className="text-xs text-amber-400 font-bold">
+                        Mostrando {filteredVehicles.length} de {vehicles.length}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Vehicles Scrollable List Container */}
-                <div className="overflow-y-auto custom-scrollbar max-h-[calc(100vh-330px)] sm:max-h-[calc(100vh-310px)] pr-1 pb-16">
+                <div className="overflow-y-auto custom-scrollbar max-h-[calc(100vh-360px)] sm:max-h-[calc(100vh-340px)] pr-1 pb-16">
                   {vehicles.length === 0 ? (
                     <div className="glass-card rounded-3xl p-12 sm:p-16 text-center border-dashed border-white/10 flex flex-col items-center justify-center">
                       <div className="w-16 h-16 rounded-3xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-3xl mb-4 shadow-lg shadow-amber-500/10">
