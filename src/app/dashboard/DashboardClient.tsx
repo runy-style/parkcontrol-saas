@@ -10,7 +10,7 @@ import {
   Clock, TrendingUp, Users, ChevronRight, ChevronLeft, AlertCircle, X, Download, MessageCircle,
   Search, Trash2, Menu, Lock, CreditCard, Banknote, Smartphone, Check, Sparkles,
   ArrowRight, ShieldAlert, Timer, Calendar as CalendarIcon, Hourglass, Eye, FileText,
-  AlertTriangle, CalendarDays
+  AlertTriangle, CalendarDays, Gift, Crown, Award, Flame, Zap
 } from 'lucide-react'
 import { createOperatorAction, verifyAdminCredentialsAction, logAuditEventAction } from './actions'
 import {
@@ -34,8 +34,12 @@ interface Props {
 
 
 // ─── Vehicle Card (50% Plate | 25% Entry & Elapsed Time | 25% Accumulated Fee) ───
-function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
-  vehicle: Vehicle; tariff: Tariff; onCheckout: (v: Vehicle, elapsed: number, fee: number) => void; onDelete: (v: Vehicle) => void
+function VehicleCard({ vehicle, tariff, monthlyVisits, onCheckout, onDelete }: {
+  vehicle: Vehicle
+  tariff: Tariff
+  monthlyVisits: number
+  onCheckout: (v: Vehicle, elapsed: number, fee: number) => void
+  onDelete: (v: Vehicle) => void
 }) {
   const [elapsed, setElapsed] = useState(Date.now() - new Date(vehicle.entry_at).getTime())
   useEffect(() => {
@@ -46,17 +50,23 @@ function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
   const fee = calcFee(elapsed, tariff)
   const mins = elapsed / 60000
   const isOver = mins > tariff.base_minutes
+  const threshold = tariff.frequent_threshold || 10
+  const isLoyal = (tariff.frequent_benefit_enabled !== false) && monthlyVisits >= threshold
 
   return (
-    <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-3.5 hover:-translate-y-1 transition-all duration-300 border border-white/10 hover:border-amber-400/40 group shadow-lg bg-zinc-900/90">
+    <div className={`glass-card rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-3.5 hover:-translate-y-1 transition-all duration-300 border ${
+      isLoyal
+        ? 'border-amber-400/50 shadow-amber-500/15 ring-1 ring-amber-400/30'
+        : 'border-white/10 hover:border-amber-400/40'
+    } group shadow-lg bg-zinc-900/90`}>
       
       {/* Upper Data Grid (50% - 25% - 25%) */}
       <div className="flex items-stretch justify-between gap-2">
         
-        {/* 50% Left Section: Plate, Delete button & Status badge */}
+        {/* 50% Left Section: Plate, Monthly Visits Globo/Badge, Delete button & Status badge */}
         <div className="w-1/2 flex flex-col justify-between gap-2 pr-2.5 border-r border-white/10">
           <div className="flex items-center justify-between gap-1.5">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
               <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase truncate leading-none">
                 {vehicle.plate}
@@ -65,19 +75,34 @@ function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
             
             <button
               onClick={() => onDelete(vehicle)}
-              className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-1.5 rounded-lg transition-all flex-shrink-0"
+              className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-1.5 rounded-lg transition-all flex-shrink-0 cursor-pointer"
               title="Eliminar ingreso erróneo"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           </div>
 
-          <div>
-            <span className={`inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full ${isOver
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Globo de Conteo Mensual de Visitas */}
+            <span
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black shadow-sm ${
+                isLoyal
+                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-amber-500/25 animate-subtle-pulse'
+                  : monthlyVisits >= 3
+                    ? 'bg-purple-500/20 border border-purple-400/30 text-purple-300'
+                    : 'bg-white/10 border border-white/15 text-zinc-300'
+              }`}
+              title={`${monthlyVisits} ingresos registrados en los últimos 30 días`}
+            >
+              {isLoyal ? '👑' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
+            </span>
+
+            {/* Status badge */}
+            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${isOver
               ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30 animate-subtle-pulse'
               : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-current" />
-              {isOver ? 'Tiempo Extra' : 'En Curso'}
+              {isOver ? 'T. Extra' : 'En Curso'}
             </span>
           </div>
         </div>
@@ -128,22 +153,53 @@ function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
 }
 
 // ─── Checkout Modal (Fullscreen on Mobile, Extra Legible) ─────────────────────
-function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose }: {
+function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tariff, onConfirm, onClose }: {
   vehicle: Vehicle
   elapsed: number
   fee: number
   role: string
   orgId: string
+  monthlyVisits: number
+  tariff: Tariff
   onConfirm: (paymentMethod: string, finalFee: number, reason?: string) => Promise<void>
   onClose: () => void
 }) {
+  const threshold = tariff.frequent_threshold || 10
+  const isBenefitActive = (tariff.frequent_benefit_enabled !== false) && monthlyVisits >= threshold
+  const benefitType = tariff.frequent_benefit_type || 'percent'
+  const benefitValue = tariff.frequent_benefit_value !== undefined ? tariff.frequent_benefit_value : 50
+
+  // Calculate default discounted fee if eligible
+  const calculateBenefitFee = () => {
+    if (!isBenefitActive) return fee
+    if (benefitType === 'free_stay') return 0
+    if (benefitType === 'percent') return Math.round(fee * (1 - benefitValue / 100))
+    if (benefitType === 'fixed') return Math.max(0, fee - benefitValue)
+    return fee
+  }
+
+  const defaultBenefitFee = calculateBenefitFee()
+  const [applyBenefit, setApplyBenefit] = useState(isBenefitActive)
+  const [modifiedFee, setModifiedFee] = useState<number>(isBenefitActive ? defaultBenefitFee : fee)
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('efectivo')
-  const [modifiedFee, setModifiedFee] = useState<number>(fee)
   const [isEditingFee, setIsEditingFee] = useState(false)
-  const [reason, setReason] = useState('')
+  const [reason, setReason] = useState(isBenefitActive ? `Beneficio cliente frecuente (${monthlyVisits} visitas/mes)` : '')
   const [adminPassword, setAdminPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  const toggleBenefit = () => {
+    if (applyBenefit) {
+      setApplyBenefit(false)
+      setModifiedFee(fee)
+      setReason('')
+    } else {
+      setApplyBenefit(true)
+      const bFee = calculateBenefitFee()
+      setModifiedFee(bFee)
+      setReason(`Beneficio cliente frecuente (${monthlyVisits} visitas en el mes)`)
+    }
+  }
 
   const handleConfirm = async () => {
     setError('')
@@ -204,7 +260,7 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose 
           <button
             onClick={onClose}
             disabled={loading}
-            className="text-zinc-400 hover:text-white p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+            className="text-zinc-400 hover:text-white p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all cursor-pointer"
             title="Cerrar"
           >
             <X className="w-5 h-5" />
@@ -218,13 +274,61 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose 
           <div className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent border-2 border-amber-500/30 rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
             
-            {/* Plate Badge */}
-            <div className="plate-badge px-6 py-2.5 rounded-2xl border-2 border-amber-400/40 shadow-xl flex items-center gap-3">
-              <CarFront className="w-6 h-6 text-amber-400" />
-              <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase">
-                {vehicle.plate}
+            {/* Plate Badge + Monthly Visits Globo */}
+            <div className="flex items-center gap-3 flex-wrap justify-center">
+              <div className="plate-badge px-6 py-2.5 rounded-2xl border-2 border-amber-400/40 shadow-xl flex items-center gap-3">
+                <CarFront className="w-6 h-6 text-amber-400" />
+                <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase">
+                  {vehicle.plate}
+                </span>
+              </div>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-black shadow-md ${
+                  isBenefitActive
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black animate-subtle-pulse'
+                    : monthlyVisits >= 3
+                      ? 'bg-purple-500/20 border border-purple-400/40 text-purple-300'
+                      : 'bg-white/10 border border-white/15 text-zinc-300'
+                }`}
+              >
+                {isBenefitActive ? '👑' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
               </span>
             </div>
+
+            {/* VIP Loyalty Benefit Banner (if eligible) */}
+            {monthlyVisits >= threshold && (
+              <div className={`w-full p-3 sm:p-4 rounded-2xl border flex items-center justify-between gap-3 text-left transition-all ${
+                applyBenefit 
+                  ? 'bg-amber-400/15 border-amber-400/50 shadow-lg shadow-amber-500/10'
+                  : 'bg-black/40 border-white/10 opacity-70'
+              }`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-2xl flex-shrink-0">🎁</span>
+                  <div className="min-w-0">
+                    <span className="text-xs font-black text-amber-400 uppercase tracking-wider block truncate">
+                      ¡Beneficio Cliente Frecuente ({monthlyVisits} visitas)!
+                    </span>
+                    <span className="text-[11px] text-zinc-300 font-semibold block truncate">
+                      {benefitType === 'free_stay' && '1 Día / Estadía Gratis (100% DCTO)'}
+                      {benefitType === 'percent' && `${benefitValue}% de Descuento aplicado`}
+                      {benefitType === 'fixed' && `Descuento fijo de ${formatCLP(benefitValue)}`}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={toggleBenefit}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex-shrink-0 transition-all cursor-pointer ${
+                    applyBenefit
+                      ? 'bg-amber-400 text-black shadow-md'
+                      : 'bg-white/10 hover:bg-white/20 text-white'
+                  }`}
+                >
+                  {applyBenefit ? '✓ Aplicado' : 'Aplicar'}
+                </button>
+              </div>
+            )}
 
             {/* Hero Amount */}
             <div className="flex flex-col items-center mt-2">
@@ -248,9 +352,16 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose 
                   />
                 </div>
               ) : (
-                <span className="text-5xl sm:text-6xl font-black text-amber-400 font-mono tracking-tight my-1 drop-shadow-md">
-                  {formatCLP(modifiedFee)}
-                </span>
+                <div className="flex flex-col items-center my-1">
+                  {modifiedFee !== fee && (
+                    <span className="text-base sm:text-lg font-mono line-through text-zinc-500 font-bold">
+                      {formatCLP(fee)}
+                    </span>
+                  )}
+                  <span className="text-5xl sm:text-6xl font-black text-amber-400 font-mono tracking-tight drop-shadow-md">
+                    {formatCLP(modifiedFee)}
+                  </span>
+                </div>
               )}
 
               <button
@@ -259,7 +370,7 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose 
                   setIsEditingFee(!isEditingFee)
                   setError('')
                 }}
-                className="mt-1 text-zinc-400 hover:text-amber-300 transition-colors px-3 py-1 rounded-full hover:bg-amber-400/10 text-xs font-bold flex items-center gap-1.5 border border-white/10"
+                className="mt-1 text-zinc-400 hover:text-amber-300 transition-colors px-3 py-1 rounded-full hover:bg-amber-400/10 text-xs font-bold flex items-center gap-1.5 border border-white/10 cursor-pointer"
               >
                 {isEditingFee ? '✓ Confirmar Tarifa' : '✍️ Ajustar Monto Manual'}
               </button>
@@ -846,10 +957,32 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
 
   const saveTariff = async (t: Tariff) => {
     setSavingTariff(true)
-    await supabase.from('tariffs').update({
-      base_fee: t.base_fee, base_minutes: t.base_minutes,
-      additional_fee: t.additional_fee, additional_minutes: t.additional_minutes,
-    }).eq('id', t.id)
+    const updatePayload: any = {
+      base_fee: t.base_fee,
+      base_minutes: t.base_minutes,
+      additional_fee: t.additional_fee,
+      additional_minutes: t.additional_minutes,
+    }
+    if (t.frequent_threshold !== undefined) updatePayload.frequent_threshold = t.frequent_threshold
+    if (t.frequent_benefit_type !== undefined) updatePayload.frequent_benefit_type = t.frequent_benefit_type
+    if (t.frequent_benefit_value !== undefined) updatePayload.frequent_benefit_value = t.frequent_benefit_value
+    if (t.frequent_benefit_enabled !== undefined) updatePayload.frequent_benefit_enabled = t.frequent_benefit_enabled
+
+    try {
+      const { error: updErr } = await supabase.from('tariffs').update(updatePayload).eq('id', t.id)
+      if (updErr) {
+        // Fallback to standard fields if custom migration columns are pending
+        await supabase.from('tariffs').update({
+          base_fee: t.base_fee,
+          base_minutes: t.base_minutes,
+          additional_fee: t.additional_fee,
+          additional_minutes: t.additional_minutes,
+        }).eq('id', t.id)
+      }
+    } catch (err) {
+      console.error('Error saving tariff:', err)
+    }
+
     setTariff(t)
     setSavingTariff(false)
     setTariffSaved(true)
@@ -1036,11 +1169,68 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     )
   }
 
+  // ── Monthly visits calculation (last 30 days) per plate ──
+  const thirtyDaysAgoMs = now - 30 * 24 * 60 * 60 * 1000
+
+  const monthlyVisitsByPlate = useMemo(() => {
+    const counts: Record<string, number> = {}
+    
+    // Count transactions in last 30 days
+    transactions.forEach(t => {
+      const txTime = new Date(t.exit_at || t.created_at || t.entry_at).getTime()
+      if (txTime >= thirtyDaysAgoMs) {
+        const p = t.plate.toUpperCase()
+        counts[p] = (counts[p] || 0) + 1
+      }
+    })
+
+    // Count currently parked active vehicles
+    vehicles.forEach(v => {
+      const vTime = new Date(v.entry_at).getTime()
+      if (vTime >= thirtyDaysAgoMs) {
+        const p = v.plate.toUpperCase()
+        counts[p] = (counts[p] || 0) + 1
+      }
+    })
+
+    return counts
+  }, [transactions, vehicles, thirtyDaysAgoMs])
+
+  const frequentClientsList = useMemo(() => {
+    const clientsMap: Record<string, { plate: string; visits: number; totalSpent: number; lastVisit: string }> = {}
+    
+    transactions.forEach(t => {
+      const txTime = new Date(t.exit_at || t.created_at || t.entry_at).getTime()
+      if (txTime >= thirtyDaysAgoMs) {
+        const p = t.plate.toUpperCase()
+        if (!clientsMap[p]) {
+          clientsMap[p] = { plate: p, visits: 0, totalSpent: 0, lastVisit: t.exit_at || t.entry_at }
+        }
+        clientsMap[p].visits += 1
+        clientsMap[p].totalSpent += t.fee
+        if (new Date(t.exit_at || t.entry_at).getTime() > new Date(clientsMap[p].lastVisit).getTime()) {
+          clientsMap[p].lastVisit = t.exit_at || t.entry_at
+        }
+      }
+    })
+
+    // Also include active vehicles if not yet in transactions
+    vehicles.forEach(v => {
+      const p = v.plate.toUpperCase()
+      if (!clientsMap[p]) {
+        clientsMap[p] = { plate: p, visits: 1, totalSpent: 0, lastVisit: v.entry_at }
+      }
+    })
+
+    return Object.values(clientsMap).sort((a, b) => b.visits - a.visits)
+  }, [transactions, vehicles, thirtyDaysAgoMs])
+
   const tabs = [
     { id: 'parking', label: 'Estacionamiento', icon: CarFront },
     ...(profile.role === 'admin' ? [
       { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
       { id: 'finance', label: 'Finanzas', icon: DollarSign },
+      { id: 'benefits', label: 'Beneficios', icon: Gift },
       { id: 'users', label: 'Usuarios', icon: Users },
       { id: 'settings', label: 'Tarifas', icon: Settings },
     ] : []),
@@ -1291,6 +1481,32 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                     </button>
                   </div>
 
+                  {/* Monthly Visits Live Balloon when typing a Plate */}
+                  {plateInput.length >= 4 && (() => {
+                    const typedVisits = monthlyVisitsByPlate[plateInput.toUpperCase()] || 0
+                    const threshold = tariff.frequent_threshold || 10
+                    const isTypedLoyal = (tariff.frequent_benefit_enabled !== false) && typedVisits >= threshold
+                    if (typedVisits === 0) return null
+
+                    return (
+                      <div className="flex items-center gap-2 animate-fade-in">
+                        <span className={`px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5 shadow-md ${
+                          isTypedLoyal
+                            ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-amber-500/20 animate-subtle-pulse'
+                            : typedVisits >= 3
+                              ? 'bg-purple-500/20 border border-purple-400/40 text-purple-300'
+                              : 'bg-white/10 border border-white/15 text-zinc-300'
+                        }`}>
+                          {isTypedLoyal ? '👑' : typedVisits >= 3 ? '⭐' : '🚗'}
+                          <span>Patente con {typedVisits} {typedVisits === 1 ? 'ingreso registrado' : 'ingresos registrados'} en los últimos 30 días</span>
+                          {isTypedLoyal && (
+                            <span className="underline ml-1 font-extrabold">¡Aplica Beneficio de Cliente Frecuente!</span>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })()}
+
                   {error && (
                     <div className="flex items-center gap-2 text-xs sm:text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 animate-shake">
                       <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -1379,6 +1595,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                           key={v.id}
                           vehicle={v}
                           tariff={tariff}
+                          monthlyVisits={monthlyVisitsByPlate[v.plate.toUpperCase()] || 1}
                           onCheckout={openCheckout}
                           onDelete={setDeletingVehicle}
                         />
@@ -1971,6 +2188,360 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           </div>
         )}
 
+        {/* ── BENEFITS TAB (LOYALTY PROGRAM & CONFIGURATION) ── */}
+        {tab === 'benefits' && profile.role === 'admin' && (() => {
+          const threshold = tariff.frequent_threshold || 10
+          const benefitType = tariff.frequent_benefit_type || 'percent'
+          const benefitValue = tariff.frequent_benefit_value !== undefined ? tariff.frequent_benefit_value : 50
+          const isEnabled = tariff.frequent_benefit_enabled !== false
+
+          const [editThreshold, setEditThreshold] = useState<number>(threshold)
+          const [editType, setEditType] = useState<'percent' | 'free_stay' | 'fixed'>(benefitType)
+          const [editValue, setEditValue] = useState<number>(benefitValue)
+          const [editEnabled, setEditEnabled] = useState<boolean>(isEnabled)
+
+          const handleSaveBenefits = async (e: React.FormEvent) => {
+            e.preventDefault()
+            await saveTariff({
+              ...tariff,
+              frequent_threshold: editThreshold,
+              frequent_benefit_type: editType,
+              frequent_benefit_value: editValue,
+              frequent_benefit_enabled: editEnabled,
+            })
+          }
+
+          // Compute loyalty stats
+          const vipClientsCount = frequentClientsList.filter(c => c.visits >= threshold).length
+          const progressingClientsCount = frequentClientsList.filter(c => c.visits >= 3 && c.visits < threshold).length
+          const totalMonthlyEntries = frequentClientsList.reduce((acc, c) => acc + c.visits, 0)
+
+          return (
+            <div className="flex flex-col gap-6 animate-fade-in w-full">
+              {/* Header Hero Banner */}
+              <div className="glass-card rounded-3xl p-6 sm:p-7 border border-white/10 shadow-2xl bg-gradient-to-r from-amber-500/15 via-zinc-900/80 to-zinc-900/90 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-black font-black text-2xl shadow-xl shadow-amber-500/25">
+                    🎁
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                      Programa de Fidelización y Beneficios
+                    </h2>
+                    <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
+                      Premia automáticamente a los clientes que registren más de {threshold} visitas en el mes.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+                  <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 border ${
+                    editEnabled 
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'bg-zinc-800 text-zinc-400 border-white/10'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${editEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                    {editEnabled ? 'Programa Activo' : 'Programa Pausado'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 3 Loyalty Overview KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="glass-card rounded-2xl p-5 border border-amber-500/30 bg-black/40 shadow-inner flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
+                      <Crown className="w-3.5 h-3.5 text-amber-400" /> Clientes VIP Desbloqueados
+                    </span>
+                    <span className="text-3xl font-black text-amber-400 font-mono">
+                      {vipClientsCount}
+                    </span>
+                    <span className="text-[11px] text-zinc-400 mt-1">Con {threshold}+ visitas este mes</span>
+                  </div>
+                  <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-2xl">
+                    👑
+                  </div>
+                </div>
+
+                <div className="glass-card rounded-2xl p-5 border border-white/10 bg-black/40 shadow-inner flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
+                      <Award className="w-3.5 h-3.5 text-purple-400" /> Clientes en Progreso
+                    </span>
+                    <span className="text-3xl font-black text-white font-mono">
+                      {progressingClientsCount}
+                    </span>
+                    <span className="text-[11px] text-zinc-400 mt-1">Entre 3 y {threshold - 1} visitas</span>
+                  </div>
+                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-2xl">
+                    ⭐
+                  </div>
+                </div>
+
+                <div className="glass-card rounded-2xl p-5 border border-white/10 bg-black/40 shadow-inner flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
+                      <Flame className="w-3.5 h-3.5 text-sky-400" /> Total Ingresos del Mes
+                    </span>
+                    <span className="text-3xl font-black text-sky-400 font-mono">
+                      {totalMonthlyEntries}
+                    </span>
+                    <span className="text-[11px] text-zinc-400 mt-1">En {frequentClientsList.length} patentes únicas</span>
+                  </div>
+                  <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-2xl">
+                    🚗
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Grid: Configuration Form & Frequent Clients Ranking */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                {/* Configuration Card (5 cols on lg) */}
+                <div className="lg:col-span-5 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90">
+                  <div className="flex items-center gap-3 border-b border-white/10 pb-4 mb-5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 font-black">
+                      ⚙️
+                    </div>
+                    <div>
+                      <h3 className="font-black text-white text-base leading-tight">
+                        Configurar Reglas de Beneficio
+                      </h3>
+                      <p className="text-xs text-zinc-400">Define requisitos y tipo de premio</p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleSaveBenefits} className="flex flex-col gap-5">
+                    {/* Toggle Enabled */}
+                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-black/40 border border-white/10">
+                      <div>
+                        <span className="text-xs font-black text-white block">Estado del Programa</span>
+                        <span className="text-[11px] text-zinc-400">Permite aplicar beneficios en caja</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditEnabled(!editEnabled)}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          editEnabled
+                            ? 'bg-amber-400 text-black shadow-md'
+                            : 'bg-zinc-800 text-zinc-400 border border-white/10'
+                        }`}
+                      >
+                        {editEnabled ? '✓ Activado' : 'Desactivado'}
+                      </button>
+                    </div>
+
+                    {/* Visitas Requeridas (Threshold) */}
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>Meta de Ingresos en el Mes</span>
+                        <span className="text-amber-400 font-mono font-black">{editThreshold} visitas</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          required
+                          value={editThreshold}
+                          onChange={e => setEditThreshold(Math.max(1, Number(e.target.value)))}
+                          className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
+                        />
+                        <span className="absolute right-4 text-xs text-zinc-500 font-bold">visitas / mes</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500">
+                        La patente obtendrá el beneficio a partir de su ingreso número {editThreshold}.
+                      </p>
+                    </div>
+
+                    {/* Tipo de Beneficio */}
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                        Tipo de Premio / Beneficio
+                      </label>
+                      <div className="grid grid-cols-1 gap-2">
+                        {[
+                          { id: 'percent', label: 'Descuento Porcentual (%)', desc: 'Ej: 50% de descuento en el cobro de la estadía', icon: '🏷️' },
+                          { id: 'free_stay', label: '1 Día / Estadía Gratis (100%)', desc: 'Estadía totalmente gratuita ($0 a cobrar)', icon: '🎁' },
+                          { id: 'fixed', label: 'Descuento en Monto Fijo ($)', desc: 'Descuenta un valor en pesos específico', icon: '💵' },
+                        ].map(opt => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setEditType(opt.id as any)}
+                            className={`p-3 rounded-2xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                              editType === opt.id
+                                ? 'bg-amber-400/15 border-amber-400 text-white shadow-md'
+                                : 'bg-black/30 border-white/5 text-zinc-400 hover:border-white/20'
+                            }`}
+                          >
+                            <span className="text-xl flex-shrink-0">{opt.icon}</span>
+                            <div>
+                              <span className="text-xs font-black text-white block">{opt.label}</span>
+                              <span className="text-[10px] text-zinc-400 block mt-0.5">{opt.desc}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Valor del Beneficio (if percent or fixed) */}
+                    {editType === 'percent' && (
+                      <div className="flex flex-col gap-2 animate-fade-in">
+                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                          <span>Porcentaje de Descuento</span>
+                          <span className="text-amber-400 font-mono font-black">{editValue}%</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            required
+                            value={editValue}
+                            onChange={e => setEditValue(Math.min(100, Math.max(1, Number(e.target.value))))}
+                            className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
+                          />
+                          <span className="absolute right-4 text-xs text-amber-400 font-black">% DCTO</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {editType === 'fixed' && (
+                      <div className="flex flex-col gap-2 animate-fade-in">
+                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                          <span>Monto de Descuento en Pesos</span>
+                          <span className="text-amber-400 font-mono font-black">{formatCLP(editValue)}</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            min={100}
+                            step={100}
+                            required
+                            value={editValue}
+                            onChange={e => setEditValue(Math.max(0, Number(e.target.value)))}
+                            className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
+                          />
+                          <span className="absolute right-4 text-xs text-amber-400 font-black">CLP</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {tariffSaved && (
+                      <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 animate-fade-in font-bold">
+                        <Check className="w-4 h-4 flex-shrink-0" />
+                        <span>¡Configuración de beneficios guardada correctamente!</span>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={savingTariff}
+                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3.5 rounded-xl text-sm transition-all shadow-xl shadow-amber-500/25 active:scale-[0.98] cursor-pointer mt-2"
+                    >
+                      {savingTariff ? (
+                        <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>Guardar Beneficios</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+
+                {/* Frequent Clients Ranking Table (7 cols on lg) */}
+                <div className="lg:col-span-7 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90 flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 font-black">
+                        🏆
+                      </div>
+                      <div>
+                        <h3 className="font-black text-white text-base leading-tight">
+                          Ranking de Clientes del Mes
+                        </h3>
+                        <p className="text-xs text-zinc-400">Patentes con mayor frecuencia en los últimos 30 días</p>
+                      </div>
+                    </div>
+
+                    <span className="text-xs text-zinc-400 font-mono font-bold bg-black/40 px-3 py-1 rounded-xl border border-white/10">
+                      {frequentClientsList.length} patentes
+                    </span>
+                  </div>
+
+                  {/* Table */}
+                  <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-black/50 border-b border-white/10">
+                          {['#', 'Patente', 'Ingresos / Mes', 'Estado', 'Aporte Total'].map(h => (
+                            <th key={h} className="px-4 py-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {frequentClientsList.length > 0 ? (
+                          frequentClientsList.map((client, idx) => {
+                            const isVip = client.visits >= threshold
+                            return (
+                              <tr key={client.plate} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                <td className="px-4 py-3 text-xs font-black font-mono text-zinc-400">
+                                  {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                </td>
+                                <td className="px-4 py-3 font-mono font-black text-white text-sm">
+                                  <span className="plate-badge px-2.5 py-1 rounded-lg border border-white/15">
+                                    {client.plate}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-xs font-black font-mono text-white">
+                                      {client.visits} {client.visits === 1 ? 'visita' : 'visitas'}
+                                    </span>
+                                    <div className="w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full ${isVip ? 'bg-amber-400' : 'bg-purple-400'}`}
+                                        style={{ width: `${Math.min(100, (client.visits / threshold) * 100)}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {isVip ? (
+                                    <span className="inline-flex items-center gap-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-sm">
+                                      👑 VIP Desbloqueado
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 bg-white/5 text-zinc-400 border border-white/10 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                                      ⏳ Falta{threshold - client.visits === 1 ? '' : 'n'} {threshold - client.visits}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 font-mono font-bold text-amber-400 text-xs">
+                                  {formatCLP(client.totalSpent)}
+                                </td>
+                              </tr>
+                            )
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-zinc-500 text-xs font-semibold">
+                              Sin registros de patentes en los últimos 30 días.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
         {/* ── USERS TAB (admin only) ── */}
         {tab === 'users' && profile.role === 'admin' && (
           <div className="flex flex-col gap-6 animate-fade-in">
@@ -2052,6 +2623,8 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           {...checkout}
           role={profile.role}
           orgId={orgId}
+          monthlyVisits={monthlyVisitsByPlate[checkout.vehicle.plate.toUpperCase()] || 1}
+          tariff={tariff}
           onConfirm={confirmCheckout}
           onClose={() => setCheckout(null)}
         />

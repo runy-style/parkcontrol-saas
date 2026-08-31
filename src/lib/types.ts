@@ -24,6 +24,10 @@ export interface Tariff {
   additional_fee: number
   additional_minutes: number
   updated_at: string
+  frequent_threshold?: number
+  frequent_benefit_type?: 'free_stay' | 'percent' | 'fixed'
+  frequent_benefit_value?: number
+  frequent_benefit_enabled?: boolean
 }
 
 export interface Vehicle {
