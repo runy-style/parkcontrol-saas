@@ -799,6 +799,379 @@ function ViewingClosureReceiptModal({ closure, onClose }: { closure: ShiftClosur
   )
 }
 
+// ─── Benefits Tab Component (Loyalty Program & Frequency Rules) ──────────────
+function BenefitsTab({
+  tariff,
+  saveTariff,
+  savingTariff,
+  tariffSaved,
+  frequentClientsList,
+}: {
+  tariff: Tariff
+  saveTariff: (t: Tariff) => Promise<void>
+  savingTariff: boolean
+  tariffSaved: boolean
+  frequentClientsList: Array<{ plate: string; visits: number; totalSpent: number; lastVisit: string }>
+}) {
+  const threshold = tariff.frequent_threshold || 10
+  const benefitType = tariff.frequent_benefit_type || 'percent'
+  const benefitValue = tariff.frequent_benefit_value !== undefined ? tariff.frequent_benefit_value : 50
+  const isEnabled = tariff.frequent_benefit_enabled !== false
+
+  const [editThreshold, setEditThreshold] = useState<number>(threshold)
+  const [editType, setEditType] = useState<'percent' | 'free_stay' | 'fixed'>(benefitType)
+  const [editValue, setEditValue] = useState<number>(benefitValue)
+  const [editEnabled, setEditEnabled] = useState<boolean>(isEnabled)
+
+  useEffect(() => {
+    setEditThreshold(tariff.frequent_threshold || 10)
+    setEditType(tariff.frequent_benefit_type || 'percent')
+    setEditValue(tariff.frequent_benefit_value !== undefined ? tariff.frequent_benefit_value : 50)
+    setEditEnabled(tariff.frequent_benefit_enabled !== false)
+  }, [tariff])
+
+  const handleSaveBenefits = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await saveTariff({
+      ...tariff,
+      frequent_threshold: editThreshold,
+      frequent_benefit_type: editType,
+      frequent_benefit_value: editValue,
+      frequent_benefit_enabled: editEnabled,
+    })
+  }
+
+  // Compute loyalty stats
+  const vipClientsCount = frequentClientsList.filter(c => c.visits >= threshold).length
+  const progressingClientsCount = frequentClientsList.filter(c => c.visits >= 3 && c.visits < threshold).length
+  const totalMonthlyEntries = frequentClientsList.reduce((acc, c) => acc + c.visits, 0)
+
+  return (
+    <div className="flex flex-col gap-6 animate-fade-in w-full">
+      {/* Header Hero Banner */}
+      <div className="glass-card rounded-3xl p-6 sm:p-7 border border-white/10 shadow-2xl bg-gradient-to-r from-amber-500/15 via-zinc-900/80 to-zinc-900/90 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-black font-black text-2xl shadow-xl shadow-amber-500/25">
+            🎁
+          </div>
+          <div>
+            <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+              Programa de Fidelización y Beneficios
+            </h2>
+            <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
+              Premia automáticamente a los clientes que registren más de {threshold} visitas en el mes.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+          <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 border ${
+            editEnabled 
+              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+              : 'bg-zinc-800 text-zinc-400 border-white/10'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${editEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+            {editEnabled ? 'Programa Activo' : 'Programa Pausado'}
+          </span>
+        </div>
+      </div>
+
+      {/* 3 Loyalty Overview KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="glass-card rounded-2xl p-5 border border-amber-500/30 bg-black/40 shadow-inner flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
+              <Crown className="w-3.5 h-3.5 text-amber-400" /> Clientes VIP Desbloqueados
+            </span>
+            <span className="text-3xl font-black text-amber-400 font-mono">
+              {vipClientsCount}
+            </span>
+            <span className="text-[11px] text-zinc-400 mt-1">Con {threshold}+ visitas este mes</span>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-2xl">
+            👑
+          </div>
+        </div>
+
+        <div className="glass-card rounded-2xl p-5 border border-white/10 bg-black/40 shadow-inner flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
+              <Award className="w-3.5 h-3.5 text-purple-400" /> Clientes en Progreso
+            </span>
+            <span className="text-3xl font-black text-white font-mono">
+              {progressingClientsCount}
+            </span>
+            <span className="text-[11px] text-zinc-400 mt-1">Entre 3 y {threshold - 1} visitas</span>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-2xl">
+            ⭐
+          </div>
+        </div>
+
+        <div className="glass-card rounded-2xl p-5 border border-white/10 bg-black/40 shadow-inner flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
+              <Flame className="w-3.5 h-3.5 text-sky-400" /> Total Ingresos del Mes
+            </span>
+            <span className="text-3xl font-black text-sky-400 font-mono">
+              {totalMonthlyEntries}
+            </span>
+            <span className="text-[11px] text-zinc-400 mt-1">En {frequentClientsList.length} patentes únicas</span>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-2xl">
+            🚗
+          </div>
+        </div>
+      </div>
+
+      {/* Main Grid: Configuration Form & Frequent Clients Ranking */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        {/* Configuration Card (5 cols on lg) */}
+        <div className="lg:col-span-5 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90">
+          <div className="flex items-center gap-3 border-b border-white/10 pb-4 mb-5">
+            <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 font-black">
+              ⚙️
+            </div>
+            <div>
+              <h3 className="font-black text-white text-base leading-tight">
+                Configurar Reglas de Beneficio
+              </h3>
+              <p className="text-xs text-zinc-400">Define requisitos y tipo de premio</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveBenefits} className="flex flex-col gap-5">
+            {/* Toggle Enabled */}
+            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-black/40 border border-white/10">
+              <div>
+                <span className="text-xs font-black text-white block">Estado del Programa</span>
+                <span className="text-[11px] text-zinc-400">Permite aplicar beneficios en caja</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditEnabled(!editEnabled)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  editEnabled
+                    ? 'bg-amber-400 text-black shadow-md'
+                    : 'bg-zinc-800 text-zinc-400 border border-white/10'
+                }`}
+              >
+                {editEnabled ? '✓ Activado' : 'Desactivado'}
+              </button>
+            </div>
+
+            {/* Visitas Requeridas (Threshold) */}
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Meta de Ingresos en el Mes</span>
+                <span className="text-amber-400 font-mono font-black">{editThreshold} visitas</span>
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  required
+                  value={editThreshold}
+                  onChange={e => setEditThreshold(Math.max(1, Number(e.target.value)))}
+                  className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
+                />
+                <span className="absolute right-4 text-xs text-zinc-500 font-bold">visitas / mes</span>
+              </div>
+              <p className="text-[11px] text-zinc-500">
+                La patente obtendrá el beneficio a partir de su ingreso número {editThreshold}.
+              </p>
+            </div>
+
+            {/* Tipo de Beneficio */}
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                Tipo de Premio / Beneficio
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                {[
+                  { id: 'percent', label: 'Descuento Porcentual (%)', desc: 'Ej: 50% de descuento en el cobro de la estadía', icon: '🏷️' },
+                  { id: 'free_stay', label: '1 Día / Estadía Gratis (100%)', desc: 'Estadía totalmente gratuita ($0 a cobrar)', icon: '🎁' },
+                  { id: 'fixed', label: 'Descuento en Monto Fijo ($)', desc: 'Descuenta un valor en pesos específico', icon: '💵' },
+                ].map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setEditType(opt.id as any)}
+                    className={`p-3 rounded-2xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                      editType === opt.id
+                        ? 'bg-amber-400/15 border-amber-400 text-white shadow-md'
+                        : 'bg-black/30 border-white/5 text-zinc-400 hover:border-white/20'
+                    }`}
+                  >
+                    <span className="text-xl flex-shrink-0">{opt.icon}</span>
+                    <div>
+                      <span className="text-xs font-black text-white block">{opt.label}</span>
+                      <span className="text-[10px] text-zinc-400 block mt-0.5">{opt.desc}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Valor del Beneficio (if percent or fixed) */}
+            {editType === 'percent' && (
+              <div className="flex flex-col gap-2 animate-fade-in">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>Porcentaje de Descuento</span>
+                  <span className="text-amber-400 font-mono font-black">{editValue}%</span>
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    required
+                    value={editValue}
+                    onChange={e => setEditValue(Math.min(100, Math.max(1, Number(e.target.value))))}
+                    className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
+                  />
+                  <span className="absolute right-4 text-xs text-amber-400 font-black">% DCTO</span>
+                </div>
+              </div>
+            )}
+
+            {editType === 'fixed' && (
+              <div className="flex flex-col gap-2 animate-fade-in">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>Monto de Descuento en Pesos</span>
+                  <span className="text-amber-400 font-mono font-black">{formatCLP(editValue)}</span>
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="number"
+                    min={100}
+                    step={100}
+                    required
+                    value={editValue}
+                    onChange={e => setEditValue(Math.max(0, Number(e.target.value)))}
+                    className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
+                  />
+                  <span className="absolute right-4 text-xs text-amber-400 font-black">CLP</span>
+                </div>
+              </div>
+            )}
+
+            {tariffSaved && (
+              <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 animate-fade-in font-bold">
+                <Check className="w-4 h-4 flex-shrink-0" />
+                <span>¡Configuración de beneficios guardada correctamente!</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={savingTariff}
+              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3.5 rounded-xl text-sm transition-all shadow-xl shadow-amber-500/25 active:scale-[0.98] cursor-pointer mt-2"
+            >
+              {savingTariff ? (
+                <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Guardar Beneficios</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Frequent Clients Ranking Table (7 cols on lg) */}
+        <div className="lg:col-span-7 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90 flex flex-col gap-4">
+          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 font-black">
+                🏆
+              </div>
+              <div>
+                <h3 className="font-black text-white text-base leading-tight">
+                  Ranking de Clientes del Mes
+                </h3>
+                <p className="text-xs text-zinc-400">Patentes con mayor frecuencia en los últimos 30 días</p>
+              </div>
+            </div>
+
+            <span className="text-xs text-zinc-400 font-mono font-bold bg-black/40 px-3 py-1 rounded-xl border border-white/10">
+              {frequentClientsList.length} patentes
+            </span>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-black/50 border-b border-white/10">
+                  {['#', 'Patente', 'Ingresos / Mes', 'Estado', 'Aporte Total'].map(h => (
+                    <th key={h} className="px-4 py-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {frequentClientsList.length > 0 ? (
+                  frequentClientsList.map((client, idx) => {
+                    const isVip = client.visits >= threshold
+                    return (
+                      <tr key={client.plate} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                        <td className="px-4 py-3 text-xs font-black font-mono text-zinc-400">
+                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-black text-white text-sm">
+                          <span className="plate-badge px-2.5 py-1 rounded-lg border border-white/15">
+                            {client.plate}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-black font-mono text-white">
+                              {client.visits} {client.visits === 1 ? 'visita' : 'visitas'}
+                            </span>
+                            <div className="w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${isVip ? 'bg-amber-400' : 'bg-purple-400'}`}
+                                style={{ width: `${Math.min(100, (client.visits / threshold) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {isVip ? (
+                            <span className="inline-flex items-center gap-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-sm">
+                              👑 VIP Desbloqueado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 bg-white/5 text-zinc-400 border border-white/10 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                              ⏳ Falta{threshold - client.visits === 1 ? '' : 'n'} {threshold - client.visits}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-bold text-amber-400 text-xs">
+                          {formatCLP(client.totalSpent)}
+                        </td>
+                      </tr>
+                    )
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-zinc-500 text-xs font-semibold">
+                      Sin registros de patentes en los últimos 30 días.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard Client ────────────────────────────────────────────────────
 export default function DashboardClient({ profile, tariff: initialTariff }: Props) {
   const router = useRouter()
@@ -2189,358 +2562,15 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         )}
 
         {/* ── BENEFITS TAB (LOYALTY PROGRAM & CONFIGURATION) ── */}
-        {tab === 'benefits' && profile.role === 'admin' && (() => {
-          const threshold = tariff.frequent_threshold || 10
-          const benefitType = tariff.frequent_benefit_type || 'percent'
-          const benefitValue = tariff.frequent_benefit_value !== undefined ? tariff.frequent_benefit_value : 50
-          const isEnabled = tariff.frequent_benefit_enabled !== false
-
-          const [editThreshold, setEditThreshold] = useState<number>(threshold)
-          const [editType, setEditType] = useState<'percent' | 'free_stay' | 'fixed'>(benefitType)
-          const [editValue, setEditValue] = useState<number>(benefitValue)
-          const [editEnabled, setEditEnabled] = useState<boolean>(isEnabled)
-
-          const handleSaveBenefits = async (e: React.FormEvent) => {
-            e.preventDefault()
-            await saveTariff({
-              ...tariff,
-              frequent_threshold: editThreshold,
-              frequent_benefit_type: editType,
-              frequent_benefit_value: editValue,
-              frequent_benefit_enabled: editEnabled,
-            })
-          }
-
-          // Compute loyalty stats
-          const vipClientsCount = frequentClientsList.filter(c => c.visits >= threshold).length
-          const progressingClientsCount = frequentClientsList.filter(c => c.visits >= 3 && c.visits < threshold).length
-          const totalMonthlyEntries = frequentClientsList.reduce((acc, c) => acc + c.visits, 0)
-
-          return (
-            <div className="flex flex-col gap-6 animate-fade-in w-full">
-              {/* Header Hero Banner */}
-              <div className="glass-card rounded-3xl p-6 sm:p-7 border border-white/10 shadow-2xl bg-gradient-to-r from-amber-500/15 via-zinc-900/80 to-zinc-900/90 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-black font-black text-2xl shadow-xl shadow-amber-500/25">
-                    🎁
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
-                      Programa de Fidelización y Beneficios
-                    </h2>
-                    <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
-                      Premia automáticamente a los clientes que registren más de {threshold} visitas en el mes.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-                  <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 border ${
-                    editEnabled 
-                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                      : 'bg-zinc-800 text-zinc-400 border-white/10'
-                  }`}>
-                    <span className={`w-2 h-2 rounded-full ${editEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
-                    {editEnabled ? 'Programa Activo' : 'Programa Pausado'}
-                  </span>
-                </div>
-              </div>
-
-              {/* 3 Loyalty Overview KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="glass-card rounded-2xl p-5 border border-amber-500/30 bg-black/40 shadow-inner flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
-                      <Crown className="w-3.5 h-3.5 text-amber-400" /> Clientes VIP Desbloqueados
-                    </span>
-                    <span className="text-3xl font-black text-amber-400 font-mono">
-                      {vipClientsCount}
-                    </span>
-                    <span className="text-[11px] text-zinc-400 mt-1">Con {threshold}+ visitas este mes</span>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-2xl">
-                    👑
-                  </div>
-                </div>
-
-                <div className="glass-card rounded-2xl p-5 border border-white/10 bg-black/40 shadow-inner flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
-                      <Award className="w-3.5 h-3.5 text-purple-400" /> Clientes en Progreso
-                    </span>
-                    <span className="text-3xl font-black text-white font-mono">
-                      {progressingClientsCount}
-                    </span>
-                    <span className="text-[11px] text-zinc-400 mt-1">Entre 3 y {threshold - 1} visitas</span>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-2xl">
-                    ⭐
-                  </div>
-                </div>
-
-                <div className="glass-card rounded-2xl p-5 border border-white/10 bg-black/40 shadow-inner flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-1">
-                      <Flame className="w-3.5 h-3.5 text-sky-400" /> Total Ingresos del Mes
-                    </span>
-                    <span className="text-3xl font-black text-sky-400 font-mono">
-                      {totalMonthlyEntries}
-                    </span>
-                    <span className="text-[11px] text-zinc-400 mt-1">En {frequentClientsList.length} patentes únicas</span>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-2xl">
-                    🚗
-                  </div>
-                </div>
-              </div>
-
-              {/* Main Grid: Configuration Form & Frequent Clients Ranking */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                
-                {/* Configuration Card (5 cols on lg) */}
-                <div className="lg:col-span-5 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90">
-                  <div className="flex items-center gap-3 border-b border-white/10 pb-4 mb-5">
-                    <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 font-black">
-                      ⚙️
-                    </div>
-                    <div>
-                      <h3 className="font-black text-white text-base leading-tight">
-                        Configurar Reglas de Beneficio
-                      </h3>
-                      <p className="text-xs text-zinc-400">Define requisitos y tipo de premio</p>
-                    </div>
-                  </div>
-
-                  <form onSubmit={handleSaveBenefits} className="flex flex-col gap-5">
-                    {/* Toggle Enabled */}
-                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-black/40 border border-white/10">
-                      <div>
-                        <span className="text-xs font-black text-white block">Estado del Programa</span>
-                        <span className="text-[11px] text-zinc-400">Permite aplicar beneficios en caja</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setEditEnabled(!editEnabled)}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                          editEnabled
-                            ? 'bg-amber-400 text-black shadow-md'
-                            : 'bg-zinc-800 text-zinc-400 border border-white/10'
-                        }`}
-                      >
-                        {editEnabled ? '✓ Activado' : 'Desactivado'}
-                      </button>
-                    </div>
-
-                    {/* Visitas Requeridas (Threshold) */}
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                        <span>Meta de Ingresos en el Mes</span>
-                        <span className="text-amber-400 font-mono font-black">{editThreshold} visitas</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="number"
-                          min={1}
-                          max={100}
-                          required
-                          value={editThreshold}
-                          onChange={e => setEditThreshold(Math.max(1, Number(e.target.value)))}
-                          className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
-                        />
-                        <span className="absolute right-4 text-xs text-zinc-500 font-bold">visitas / mes</span>
-                      </div>
-                      <p className="text-[11px] text-zinc-500">
-                        La patente obtendrá el beneficio a partir de su ingreso número {editThreshold}.
-                      </p>
-                    </div>
-
-                    {/* Tipo de Beneficio */}
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                        Tipo de Premio / Beneficio
-                      </label>
-                      <div className="grid grid-cols-1 gap-2">
-                        {[
-                          { id: 'percent', label: 'Descuento Porcentual (%)', desc: 'Ej: 50% de descuento en el cobro de la estadía', icon: '🏷️' },
-                          { id: 'free_stay', label: '1 Día / Estadía Gratis (100%)', desc: 'Estadía totalmente gratuita ($0 a cobrar)', icon: '🎁' },
-                          { id: 'fixed', label: 'Descuento en Monto Fijo ($)', desc: 'Descuenta un valor en pesos específico', icon: '💵' },
-                        ].map(opt => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => setEditType(opt.id as any)}
-                            className={`p-3 rounded-2xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                              editType === opt.id
-                                ? 'bg-amber-400/15 border-amber-400 text-white shadow-md'
-                                : 'bg-black/30 border-white/5 text-zinc-400 hover:border-white/20'
-                            }`}
-                          >
-                            <span className="text-xl flex-shrink-0">{opt.icon}</span>
-                            <div>
-                              <span className="text-xs font-black text-white block">{opt.label}</span>
-                              <span className="text-[10px] text-zinc-400 block mt-0.5">{opt.desc}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Valor del Beneficio (if percent or fixed) */}
-                    {editType === 'percent' && (
-                      <div className="flex flex-col gap-2 animate-fade-in">
-                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                          <span>Porcentaje de Descuento</span>
-                          <span className="text-amber-400 font-mono font-black">{editValue}%</span>
-                        </label>
-                        <div className="relative flex items-center">
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            required
-                            value={editValue}
-                            onChange={e => setEditValue(Math.min(100, Math.max(1, Number(e.target.value))))}
-                            className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
-                          />
-                          <span className="absolute right-4 text-xs text-amber-400 font-black">% DCTO</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {editType === 'fixed' && (
-                      <div className="flex flex-col gap-2 animate-fade-in">
-                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                          <span>Monto de Descuento en Pesos</span>
-                          <span className="text-amber-400 font-mono font-black">{formatCLP(editValue)}</span>
-                        </label>
-                        <div className="relative flex items-center">
-                          <input
-                            type="number"
-                            min={100}
-                            step={100}
-                            required
-                            value={editValue}
-                            onChange={e => setEditValue(Math.max(0, Number(e.target.value)))}
-                            className="w-full bg-black/50 border border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white font-mono font-bold text-base focus:outline-none"
-                          />
-                          <span className="absolute right-4 text-xs text-amber-400 font-black">CLP</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {tariffSaved && (
-                      <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 animate-fade-in font-bold">
-                        <Check className="w-4 h-4 flex-shrink-0" />
-                        <span>¡Configuración de beneficios guardada correctamente!</span>
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={savingTariff}
-                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3.5 rounded-xl text-sm transition-all shadow-xl shadow-amber-500/25 active:scale-[0.98] cursor-pointer mt-2"
-                    >
-                      {savingTariff ? (
-                        <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          <span>Guardar Beneficios</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
-                </div>
-
-                {/* Frequent Clients Ranking Table (7 cols on lg) */}
-                <div className="lg:col-span-7 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90 flex flex-col gap-4">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 font-black">
-                        🏆
-                      </div>
-                      <div>
-                        <h3 className="font-black text-white text-base leading-tight">
-                          Ranking de Clientes del Mes
-                        </h3>
-                        <p className="text-xs text-zinc-400">Patentes con mayor frecuencia en los últimos 30 días</p>
-                      </div>
-                    </div>
-
-                    <span className="text-xs text-zinc-400 font-mono font-bold bg-black/40 px-3 py-1 rounded-xl border border-white/10">
-                      {frequentClientsList.length} patentes
-                    </span>
-                  </div>
-
-                  {/* Table */}
-                  <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-black/50 border-b border-white/10">
-                          {['#', 'Patente', 'Ingresos / Mes', 'Estado', 'Aporte Total'].map(h => (
-                            <th key={h} className="px-4 py-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {frequentClientsList.length > 0 ? (
-                          frequentClientsList.map((client, idx) => {
-                            const isVip = client.visits >= threshold
-                            return (
-                              <tr key={client.plate} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                                <td className="px-4 py-3 text-xs font-black font-mono text-zinc-400">
-                                  {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
-                                </td>
-                                <td className="px-4 py-3 font-mono font-black text-white text-sm">
-                                  <span className="plate-badge px-2.5 py-1 rounded-lg border border-white/15">
-                                    {client.plate}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex flex-col gap-1">
-                                    <span className="text-xs font-black font-mono text-white">
-                                      {client.visits} {client.visits === 1 ? 'visita' : 'visitas'}
-                                    </span>
-                                    <div className="w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                                      <div
-                                        className={`h-full rounded-full ${isVip ? 'bg-amber-400' : 'bg-purple-400'}`}
-                                        style={{ width: `${Math.min(100, (client.visits / threshold) * 100)}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  {isVip ? (
-                                    <span className="inline-flex items-center gap-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-sm">
-                                      👑 VIP Desbloqueado
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 bg-white/5 text-zinc-400 border border-white/10 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
-                                      ⏳ Falta{threshold - client.visits === 1 ? '' : 'n'} {threshold - client.visits}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3 font-mono font-bold text-amber-400 text-xs">
-                                  {formatCLP(client.totalSpent)}
-                                </td>
-                              </tr>
-                            )
-                          })
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="px-4 py-10 text-center text-zinc-500 text-xs font-semibold">
-                              Sin registros de patentes en los últimos 30 días.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        })()}
+        {tab === 'benefits' && profile.role === 'admin' && (
+          <BenefitsTab
+            tariff={tariff}
+            saveTariff={saveTariff}
+            savingTariff={savingTariff}
+            tariffSaved={tariffSaved}
+            frequentClientsList={frequentClientsList}
+          />
+        )}
 
         {/* ── USERS TAB (admin only) ── */}
         {tab === 'users' && profile.role === 'admin' && (
