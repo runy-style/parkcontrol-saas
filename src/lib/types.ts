@@ -59,3 +59,16 @@ export interface AuditEvent {
   created_at: string
   closure_id?: string | null
 }
+
+export interface ShiftClosure {
+  id: string
+  organization_id: string
+  closed_by: string
+  closed_at: string
+  total_vehicles: number
+  total_revenue: number
+  avg_fee: number
+  max_fee: number
+  receipt_text: string
+}
+

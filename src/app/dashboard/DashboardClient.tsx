@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Tariff, Vehicle, Transaction, AuditEvent } from '@/lib/types'
-import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate } from '@/lib/utils'
+import { Tariff, Vehicle, Transaction, AuditEvent, ShiftClosure } from '@/lib/types'
+import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate, toISODateString, formatFullDate } from '@/lib/utils'
 import {
   CarFront, BarChart3, DollarSign, Settings, LogOut, Plus,
-  Clock, TrendingUp, Users, ChevronRight, AlertCircle, X, Download, MessageCircle,
+  Clock, TrendingUp, Users, ChevronRight, ChevronLeft, AlertCircle, X, Download, MessageCircle,
   Search, Trash2, Menu, Lock, CreditCard, Banknote, Smartphone, Check, Sparkles,
-  ArrowRight, ShieldAlert, Timer, Calendar, Hourglass
+  ArrowRight, ShieldAlert, Timer, Calendar as CalendarIcon, Hourglass, Eye, FileText,
+  AlertTriangle, CalendarDays
 } from 'lucide-react'
 import { createOperatorAction, verifyAdminCredentialsAction, logAuditEventAction } from './actions'
 import {
@@ -635,6 +636,58 @@ function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
   )
 }
 
+// ─── Viewing Closure Receipt Modal (Historical Viewer) ────────────────────────
+function ViewingClosureReceiptModal({ closure, onClose }: { closure: ShiftClosure; onClose: () => void }) {
+  const dateStr = formatDate(closure.closed_at)
+  const timeStr = formatTime(closure.closed_at)
+
+  const handleDownload = () => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([closure.receipt_text], { type: 'text/plain;charset=utf-8' }))
+    a.download = `cierre_caja_${dateStr.replace(/\//g, '-')}.txt`
+    a.click()
+  }
+
+  const handleWhatsApp = () => {
+    const msg = `*📢 COMPROBANTE CIERRE DE CAJA - PARKCONTROL*\n📅 *Fecha:* ${dateStr}\n⏰ *Hora:* ${timeStr}\n🚗 *Vehículos:* ${closure.total_vehicles}\n💰 *Total Recaudado:* ${formatCLP(closure.total_revenue)}\n\n_Detalles del Cierre:_\n${closure.receipt_text}`
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank')
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="glass-card rounded-2xl w-full max-w-md flex flex-col max-h-[85vh] animate-scale-up overflow-hidden my-auto border border-white/10 shadow-2xl bg-zinc-950">
+        <div className="flex-shrink-0 bg-gradient-to-r from-emerald-500/15 to-transparent p-5 border-b border-white/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-lg">
+              🔒
+            </div>
+            <div>
+              <h2 className="font-black text-white text-base leading-tight">Cierre de Caja Registrado</h2>
+              <p className="text-xs text-zinc-400">{dateStr} • {timeStr}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <pre className="flex-1 bg-black/60 border border-white/10 rounded-2xl p-4 text-emerald-400 font-mono text-xs leading-relaxed overflow-auto custom-scrollbar select-text m-4">
+          {closure.receipt_text}
+        </pre>
+
+        <div className="flex-shrink-0 flex gap-2.5 p-4 border-t border-white/10 bg-black/40">
+          <button onClick={handleDownload} className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 rounded-xl text-xs transition-all">
+            <Download className="w-4 h-4" /> Descargar TXT
+          </button>
+          <button onClick={handleWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#25D366]/90 text-black font-black py-3 rounded-xl text-xs transition-all shadow-lg shadow-emerald-500/20">
+            <MessageCircle className="w-4 h-4" /> WhatsApp
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard Client ────────────────────────────────────────────────────
 export default function DashboardClient({ profile, tariff: initialTariff }: Props) {
   const router = useRouter()
@@ -644,18 +697,24 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [closures, setClosures] = useState<ShiftClosure[]>([])
   const [tariff, setTariff] = useState<Tariff>(initialTariff)
   const [plateInput, setPlateInput] = useState('')
   const [error, setError] = useState('')
   const [checkout, setCheckout] = useState<{ vehicle: Vehicle; elapsed: number; fee: number } | null>(null)
   const [deletingVehicle, setDeletingVehicle] = useState<Vehicle | null>(null)
   const [closureOpen, setClosureOpen] = useState(false)
+  const [viewingClosureReceipt, setViewingClosureReceipt] = useState<ShiftClosure | null>(null)
   const [txFilter, setTxFilter] = useState('shift')
   const [loadingAdd, setLoadingAdd] = useState(false)
   const [savingTariff, setSavingTariff] = useState(false)
   const [tariffSaved, setTariffSaved] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
+
+  // Calendar State for Finance
+  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date())
+  const [selectedDayStr, setSelectedDayStr] = useState<string>(toISODateString(new Date()))
 
   // User Management State
   const [users, setUsers] = useState<any[]>([])
@@ -673,6 +732,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       supabase.from('vehicles').select('*').eq('organization_id', orgId).order('entry_at', { ascending: true }),
       supabase.from('transactions').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }),
       supabase.from('audit_events').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }),
+      supabase.from('shift_closures').select('*').eq('organization_id', orgId).order('closed_at', { ascending: false }),
     ]
     if (profile.role === 'admin') {
       queries.push(
@@ -683,8 +743,9 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     setVehicles(results[0].data || [])
     setTransactions(results[1].data || [])
     setAuditEvents(results[2].data || [])
-    if (profile.role === 'admin' && results[3]) {
-      setUsers(results[3].data || [])
+    setClosures(results[3].data || [])
+    if (profile.role === 'admin' && results[4]) {
+      setUsers(results[4].data || [])
     }
   }, [orgId, supabase, profile.role])
 
@@ -696,6 +757,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${orgId}` }, loadData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `organization_id=eq.${orgId}` }, loadData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_events', filter: `organization_id=eq.${orgId}` }, loadData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shift_closures', filter: `organization_id=eq.${orgId}` }, loadData)
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [orgId, supabase, loadData])
@@ -1390,89 +1452,479 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           </div>
         )}
 
-        {/* ── FINANCE TAB ── */}
-        {tab === 'finance' && profile.role === 'admin' && (
-          <div className="flex flex-col gap-5 animate-fade-in">
-            {/* Finance KPIs + actions */}
-            <div className="glass-card rounded-2xl p-5 flex flex-col gap-4">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {[
-                  { l: 'Ingresos Totales', v: formatCLP(total), c: 'text-amber-400' },
-                  { l: 'Registros', v: String(filteredTx.length), c: 'text-white' },
-                  { l: 'Ticket Promedio', v: formatCLP(avg), c: 'text-sky-400' },
-                  { l: 'Ticket Máximo', v: formatCLP(maxFee), c: 'text-orange-400' },
-                ].map(({ l, v, c }) => (
-                  <div key={l} className="bg-black/20 border border-white/5 rounded-xl p-3">
-                    <p className={`text-xl font-black ${c}`}>{v}</p>
-                    <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider mt-0.5">{l}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between flex-wrap gap-3 border-t border-white/5 pt-4">
-                <div className="flex items-center gap-2">
-                  {profile.role === 'admin' && (
-                    <button onClick={() => setClosureOpen(true)}
-                      className="flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-bold px-4 py-2 rounded-xl text-xs transition-all">
-                      🔒 Cierre de Caja
-                    </button>
-                  )}
-                </div>
-                <div className="flex gap-1 bg-black/30 border border-white/10 rounded-xl p-1">
-                  {[
-                    { id: 'shift', l: 'Turno Activo' },
-                    { id: 'today', l: 'Hoy' },
-                    { id: 'week', l: 'Semana' },
-                    { id: 'all', l: 'Historial Completo' }
-                  ].map(f => (
-                    <button key={f.id} onClick={() => setTxFilter(f.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${txFilter === f.id ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                      {f.l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+        {/* ── FINANCE TAB (INTERACTIVE CALENDAR & DAILY DRILL-DOWN) ── */}
+        {tab === 'finance' && profile.role === 'admin' && (() => {
+          // Precompute calendar and activity map for finance
+          const activityMap: Record<string, {
+            txCount: number
+            revenue: number
+            closures: ShiftClosure[]
+            feeModifiedCount: number
+            deletedCount: number
+            auditEvents: AuditEvent[]
+            transactions: Transaction[]
+          }> = {}
 
-            {/* Transactions table */}
-            <div className="glass-card rounded-2xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-black/20 border-b border-white/5">
-                      {['Patente', 'Fecha', 'Ingreso', 'Salida', 'Duración', 'Pago', 'Cobrado'].map(h => (
-                        <th key={h} className="px-5 py-3.5 text-[10px] font-black text-zinc-500 uppercase tracking-widest">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTx.map(t => (
-                      <tr key={t.id} className="border-b border-white/3 hover:bg-white/2 transition-colors">
-                        <td className="px-5 py-3.5 font-mono font-bold text-white text-sm">{t.plate}</td>
-                        <td className="px-5 py-3.5 text-sm text-zinc-400">{formatDate(t.entry_at)}</td>
-                        <td className="px-5 py-3.5 text-sm text-zinc-400">{formatTime(t.entry_at)}</td>
-                        <td className="px-5 py-3.5 text-sm text-zinc-400">{formatTime(t.exit_at)}</td>
-                        <td className="px-5 py-3.5 text-sm text-zinc-400">{formatElapsed(new Date(t.exit_at).getTime() - new Date(t.entry_at).getTime())}</td>
-                        <td className="px-5 py-3.5 text-sm">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${t.payment_method === 'tarjeta'
-                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                            : t.payment_method === 'transferencia'
-                              ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
-                            {t.payment_method === 'transferencia' ? 'Transfer' : t.payment_method === 'tarjeta' ? 'Tarjeta' : 'Efectivo'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 text-sm font-bold text-amber-400">{formatCLP(t.fee)}</td>
-                      </tr>
-                    ))}
-                    {filteredTx.length === 0 && (
-                      <tr><td colSpan={7} className="px-5 py-12 text-center text-zinc-600 text-sm">Sin registros en este período.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+          // Process transactions
+          transactions.forEach(t => {
+            const d = toISODateString(t.exit_at || t.created_at)
+            if (!activityMap[d]) {
+              activityMap[d] = { txCount: 0, revenue: 0, closures: [], feeModifiedCount: 0, deletedCount: 0, auditEvents: [], transactions: [] }
+            }
+            activityMap[d].txCount++
+            activityMap[d].revenue += t.fee
+            activityMap[d].transactions.push(t)
+          })
+
+          // Process closures
+          closures.forEach(c => {
+            const d = toISODateString(c.closed_at)
+            if (!activityMap[d]) {
+              activityMap[d] = { txCount: 0, revenue: 0, closures: [], feeModifiedCount: 0, deletedCount: 0, auditEvents: [], transactions: [] }
+            }
+            activityMap[d].closures.push(c)
+          })
+
+          // Process audit events
+          auditEvents.forEach(a => {
+            const d = toISODateString(a.created_at)
+            if (!activityMap[d]) {
+              activityMap[d] = { txCount: 0, revenue: 0, closures: [], feeModifiedCount: 0, deletedCount: 0, auditEvents: [], transactions: [] }
+            }
+            activityMap[d].auditEvents.push(a)
+            if (a.event_type === 'fee_modified') activityMap[d].feeModifiedCount++
+            if (a.event_type === 'vehicle_deleted') activityMap[d].deletedCount++
+          })
+
+          // Calendar calculation for current displayed month
+          const calYear = calendarMonth.getFullYear()
+          const calMonth = calendarMonth.getMonth()
+          const monthTitle = calendarMonth.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+          const capitalizedMonthTitle = monthTitle.charAt(0).toUpperCase() + monthTitle.slice(1)
+
+          const firstDayOfMonth = new Date(calYear, calMonth, 1)
+          const startDayOffset = (firstDayOfMonth.getDay() + 6) % 7 // Monday = 0
+          const daysInCurrentMonth = new Date(calYear, calMonth + 1, 0).getDate()
+
+          const prevMonthDays = new Date(calYear, calMonth, 0).getDate()
+
+          // Navigation handlers
+          const prevMonth = () => setCalendarMonth(new Date(calYear, calMonth - 1, 1))
+          const nextMonth = () => setCalendarMonth(new Date(calYear, calMonth + 1, 1))
+          const gotoToday = () => {
+            const now = new Date()
+            setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1))
+            setSelectedDayStr(toISODateString(now))
+          }
+
+          // Data for selected day
+          const selectedDayData = selectedDayStr ? activityMap[selectedDayStr] || {
+            txCount: 0,
+            revenue: 0,
+            closures: [],
+            feeModifiedCount: 0,
+            deletedCount: 0,
+            auditEvents: [],
+            transactions: []
+          } : null
+
+          const todayStr = toISODateString(new Date())
+
+          return (
+            <div className="flex flex-col gap-6 animate-fade-in w-full">
+              {/* Top Overview & Shift Closure CTA */}
+              <div className="glass-card rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4 border border-white/10 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400 font-black text-xl shadow-md">
+                    <DollarSign className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">Arqueo y Finanzas</h3>
+                    <p className="text-xs text-zinc-400">Auditoría diaria, calendario de actividad y registros históricos</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setClosureOpen(true)}
+                    className="flex items-center gap-2 bg-gradient-to-r from-emerald-500/20 to-emerald-600/15 hover:from-emerald-500/30 hover:to-emerald-600/25 border border-emerald-500/40 text-emerald-400 font-extrabold px-4 py-2.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-500/10 cursor-pointer"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>Realizar Cierre de Turno</span>
+                  </button>
+                </div>
               </div>
+
+              {/* ── INTERACTIVE CALENDAR CARD ── */}
+              <div className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-5 border border-white/10 shadow-2xl bg-zinc-900/80">
+                {/* Calendar Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-amber-400 font-bold">
+                      <CalendarDays className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-white text-base sm:text-lg">
+                        {capitalizedMonthTitle}
+                      </h4>
+                      <p className="text-xs text-zinc-400">Selecciona un día para ver su desglose completo</p>
+                    </div>
+                  </div>
+
+                  {/* Month Navigation & Legend */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={prevMonth}
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-all cursor-pointer"
+                      title="Mes anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={gotoToday}
+                      className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Hoy
+                    </button>
+                    <button
+                      onClick={nextMonth}
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-all cursor-pointer"
+                      title="Mes siguiente"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Calendar Indicators Legend */}
+                <div className="flex items-center gap-4 text-xs font-bold text-zinc-400 flex-wrap bg-black/30 px-4 py-2 rounded-xl border border-white/5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50" />
+                    <span>Días con ingresos</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    <span>Cierre de caja</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-orange-400" />
+                    <span>Incidencias / Auditoría</span>
+                  </div>
+                </div>
+
+                {/* Calendar Grid */}
+                <div className="w-full">
+                  {/* Weekday headers (Lun - Dom) */}
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 text-center">
+                    {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => (
+                      <div key={d} className="text-[11px] font-black text-zinc-500 uppercase tracking-wider py-1">
+                        {d}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Day cells */}
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                    {/* Previous month trailing days */}
+                    {Array.from({ length: startDayOffset }).map((_, i) => {
+                      const dayNum = prevMonthDays - startDayOffset + i + 1
+                      return (
+                        <div
+                          key={`prev-${i}`}
+                          className="min-h-[64px] sm:min-h-[76px] p-2 rounded-2xl bg-black/10 border border-white/3 opacity-30 flex flex-col justify-between"
+                        >
+                          <span className="text-xs font-bold text-zinc-600 font-mono">{dayNum}</span>
+                        </div>
+                      )
+                    })}
+
+                    {/* Current month days */}
+                    {Array.from({ length: daysInCurrentMonth }).map((_, i) => {
+                      const dayNum = i + 1
+                      const dayStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+                      const dayData = activityMap[dayStr]
+                      const hasRecords = dayData && (dayData.txCount > 0 || dayData.closures.length > 0 || dayData.auditEvents.length > 0)
+                      const isSelected = selectedDayStr === dayStr
+                      const isToday = dayStr === todayStr
+
+                      return (
+                        <button
+                          key={dayStr}
+                          type="button"
+                          onClick={() => setSelectedDayStr(dayStr)}
+                          className={`min-h-[64px] sm:min-h-[76px] p-2 sm:p-2.5 rounded-2xl flex flex-col justify-between text-left transition-all duration-200 cursor-pointer relative group ${
+                            isSelected
+                              ? 'bg-amber-400 text-black border-2 border-amber-300 ring-2 ring-amber-400/40 shadow-xl shadow-amber-500/25 scale-[1.03] z-10'
+                              : hasRecords
+                                ? 'bg-amber-500/10 hover:bg-amber-500/20 border-2 border-amber-400/40 text-amber-300 shadow-md hover:border-amber-400'
+                                : 'bg-black/30 hover:bg-white/5 border border-white/5 text-zinc-400 hover:text-white'
+                          } ${isToday && !isSelected ? 'ring-1.5 ring-sky-400/70' : ''}`}
+                        >
+                          {/* Top Row: Day Number + Status Dots */}
+                          <div className="flex items-center justify-between w-full">
+                            <span className={`text-xs sm:text-sm font-black font-mono ${
+                              isSelected ? 'text-black' : hasRecords ? 'text-white' : 'text-zinc-400'
+                            }`}>
+                              {dayNum}
+                            </span>
+
+                            {/* Activity Badges */}
+                            <div className="flex items-center gap-1">
+                              {dayData?.closures.length ? (
+                                <span className={`text-[9px] ${isSelected ? 'text-black' : 'text-emerald-400'}`} title="Cierre de caja registrado">
+                                  🔒
+                                </span>
+                              ) : null}
+                              {(dayData?.feeModifiedCount || 0) + (dayData?.deletedCount || 0) > 0 ? (
+                                <span className={`text-[9px] ${isSelected ? 'text-black' : 'text-orange-400'}`} title="Modificaciones o eliminaciones">
+                                  ⚠️
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* Bottom Row: Revenue or Tx count */}
+                          {hasRecords && (
+                            <div className="mt-1">
+                              <span className={`text-[10px] sm:text-xs font-black font-mono block leading-tight truncate ${
+                                isSelected ? 'text-black font-extrabold' : 'text-amber-400'
+                              }`}>
+                                {formatCLP(dayData.revenue)}
+                              </span>
+                              <span className={`text-[9px] font-bold block truncate leading-none mt-0.5 ${
+                                isSelected ? 'text-black/80' : 'text-zinc-500'
+                              }`}>
+                                {dayData.txCount} auto{dayData.txCount !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── SELECTED DAY DRILL-DOWN (DESGLOSE DEL DÍA) ── */}
+              {selectedDayStr && (
+                <div className="glass-card rounded-3xl p-5 sm:p-7 flex flex-col gap-6 border border-white/10 shadow-2xl bg-zinc-900/90 animate-scale-up">
+                  {/* Selected Day Title & Date Badge */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 font-black text-xl shadow-md">
+                        📅
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400">
+                          Detalle y Movimientos del Día
+                        </span>
+                        <h3 className="text-lg sm:text-xl font-black text-white capitalize">
+                          {formatFullDate(new Date(selectedDayStr + 'T12:00:00'))}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-black/40 border border-white/10 px-3 py-1.5 rounded-xl font-mono text-zinc-300 font-bold">
+                        {selectedDayStr}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 4 KPI Summary Cards for Selected Day */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    <div className="bg-black/40 border border-amber-500/30 rounded-2xl p-4 flex flex-col justify-between gap-1 shadow-inner">
+                      <span className="text-[10px] font-extrabold text-amber-400/90 uppercase tracking-wider flex items-center gap-1">
+                        <DollarSign className="w-3.5 h-3.5 text-amber-400" /> Total Recaudado
+                      </span>
+                      <span className="text-2xl font-black text-amber-400 font-mono tracking-tight">
+                        {formatCLP(selectedDayData?.revenue || 0)}
+                      </span>
+                    </div>
+
+                    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-1 shadow-inner">
+                      <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                        <CarFront className="w-3.5 h-3.5 text-sky-400" /> Autos Procesados
+                      </span>
+                      <span className="text-2xl font-black text-white font-mono">
+                        {selectedDayData?.txCount || 0}
+                      </span>
+                    </div>
+
+                    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-1 shadow-inner">
+                      <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Tarifas Modificadas
+                      </span>
+                      <span className="text-2xl font-black text-amber-400 font-mono">
+                        {selectedDayData?.feeModifiedCount || 0}
+                      </span>
+                    </div>
+
+                    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-1 shadow-inner">
+                      <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                        <Trash2 className="w-3.5 h-3.5 text-red-400" /> Autos Eliminados
+                      </span>
+                      <span className="text-2xl font-black text-red-400 font-mono">
+                        {selectedDayData?.deletedCount || 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* ── CIERRES DE CAJA DEL DÍA ── */}
+                  {selectedDayData && selectedDayData.closures.length > 0 && (
+                    <div className="flex flex-col gap-3 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 sm:p-5">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">🔒</span>
+                          <h4 className="font-black text-white text-sm uppercase tracking-wide">
+                            Cierres de Caja Registrados ({selectedDayData.closures.length})
+                          </h4>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-1">
+                        {selectedDayData.closures.map(closure => (
+                          <div key={closure.id} className="bg-black/50 border border-emerald-500/30 rounded-xl p-4 flex flex-col justify-between gap-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-mono font-bold text-zinc-400">
+                                Hora: {formatTime(closure.closed_at)}
+                              </span>
+                              <span className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                                Recaudado: {formatCLP(closure.total_revenue)}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-xs text-zinc-300">
+                              <div>Vehículos: <strong className="text-white font-mono">{closure.total_vehicles}</strong></div>
+                              <div>Promedio: <strong className="text-amber-400 font-mono">{formatCLP(closure.avg_fee)}</strong></div>
+                            </div>
+
+                            <button
+                              onClick={() => setViewingClosureReceipt(closure)}
+                              className="w-full flex items-center justify-center gap-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-400 font-black py-2 rounded-lg text-xs transition-all cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Ver Comprobante / Recibo Completo</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── DESGLOSE DE MOVIMIENTOS Y TRANSACCIONES ── */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-black text-white text-sm uppercase tracking-wide flex items-center gap-2">
+                        <span>🚗</span> Registro de Cobros y Vehículos ({selectedDayData?.transactions.length || 0})
+                      </h4>
+                    </div>
+
+                    <div className="glass-card rounded-2xl overflow-hidden border border-white/10 bg-black/40">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="bg-black/40 border-b border-white/10">
+                              {['Patente', 'Ingreso', 'Salida', 'Duración', 'Pago', 'Total Cobrado'].map(h => (
+                                <th key={h} className="px-4 py-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedDayData && selectedDayData.transactions.length > 0 ? (
+                              selectedDayData.transactions.map(t => (
+                                <tr key={t.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                  <td className="px-4 py-3 font-mono font-black text-white text-sm">
+                                    <span className="plate-badge px-2.5 py-1 rounded-lg border border-white/15">
+                                      {t.plate}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-xs text-zinc-300 font-mono">{formatTime(t.entry_at)}</td>
+                                  <td className="px-4 py-3 text-xs text-zinc-300 font-mono">{formatTime(t.exit_at)}</td>
+                                  <td className="px-4 py-3 text-xs text-zinc-300 font-mono">{formatElapsed(new Date(t.exit_at).getTime() - new Date(t.entry_at).getTime())}</td>
+                                  <td className="px-4 py-3 text-xs">
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${t.payment_method === 'tarjeta'
+                                      ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                      : t.payment_method === 'transferencia'
+                                        ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+                                      {t.payment_method === 'transferencia' ? 'Transfer' : t.payment_method === 'tarjeta' ? 'Tarjeta' : 'Efectivo'}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm font-black text-amber-400 font-mono">{formatCLP(t.fee)}</td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={6} className="px-4 py-10 text-center text-zinc-500 text-xs font-semibold">
+                                  Sin cobros de vehículos registrados en esta fecha.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── DESGLOSE DE AUDITORÍA E INCIDENCIAS DEL DÍA ── */}
+                  <div className="flex flex-col gap-3">
+                    <h4 className="font-black text-white text-sm uppercase tracking-wide flex items-center gap-2">
+                      <span>⚠️</span> Auditoría e Incidencias del Día ({selectedDayData?.auditEvents.length || 0})
+                    </h4>
+
+                    {selectedDayData && selectedDayData.auditEvents.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {selectedDayData.auditEvents.map(audit => (
+                          <div
+                            key={audit.id}
+                            className={`rounded-xl p-3.5 border ${
+                              audit.event_type === 'fee_modified'
+                                ? 'bg-amber-500/5 border-amber-500/25'
+                                : 'bg-red-500/5 border-red-500/25'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                audit.event_type === 'fee_modified'
+                                  ? 'bg-amber-400/15 text-amber-400 border border-amber-400/30'
+                                  : 'bg-red-500/15 text-red-400 border border-red-500/30'
+                              }`}>
+                                {audit.event_type === 'fee_modified' ? 'Tarifa Modificada' : 'Vehículo Eliminado'}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-400">
+                                {formatTime(audit.created_at)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-mono font-black text-white text-sm">
+                                Patente: {audit.plate}
+                              </span>
+                              {audit.event_type === 'fee_modified' && (
+                                <span className="text-xs text-amber-400 font-bold font-mono">
+                                  {formatCLP(audit.original_value)} ➔ {formatCLP(audit.new_value)}
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-zinc-300 bg-black/40 p-2 rounded-lg border border-white/5 mt-1">
+                              <strong className="text-zinc-500">Motivo:</strong> {audit.reason}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="bg-black/30 border border-white/5 rounded-2xl p-4 text-center text-zinc-500 text-xs">
+                        ✓ Sin incidencias ni modificaciones registradas en este día.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* ── SETTINGS TAB (admin only) ── */}
         {tab === 'settings' && profile.role === 'admin' && (
@@ -1704,6 +2156,13 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
             </form>
           </div>
         </div>
+      )}
+
+      {viewingClosureReceipt && (
+        <ViewingClosureReceiptModal
+          closure={viewingClosureReceipt}
+          onClose={() => setViewingClosureReceipt(null)}
+        />
       )}
     </div>
   )
