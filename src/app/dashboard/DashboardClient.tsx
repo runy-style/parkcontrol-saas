@@ -8,7 +8,8 @@ import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate 
 import {
   CarFront, BarChart3, DollarSign, Settings, LogOut, Plus,
   Clock, TrendingUp, Users, ChevronRight, AlertCircle, X, Download, MessageCircle,
-  Search, Trash2, Menu, Lock
+  Search, Trash2, Menu, Lock, CreditCard, Banknote, Smartphone, Check, Sparkles,
+  ArrowRight, ShieldAlert, Timer, Calendar, Hourglass
 } from 'lucide-react'
 import { createOperatorAction, verifyAdminCredentialsAction, logAuditEventAction } from './actions'
 import {
@@ -46,52 +47,65 @@ function VehicleCard({ vehicle, tariff, onCheckout, onDelete }: {
   const isOver = mins > tariff.base_minutes
 
   return (
-    <div className="glass-card rounded-2xl p-5 flex flex-col gap-4 hover:-translate-y-1 transition-all duration-300">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <div className="glass-card rounded-2xl p-5 flex flex-col justify-between gap-4 hover:-translate-y-1 transition-all duration-300 border border-white/10 hover:border-amber-400/40 group shadow-lg">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-lg text-white tracking-wider bg-black/30 px-3 py-1.5 rounded-lg border border-white/10">
-            {vehicle.plate}
-          </span>
+          <div className="plate-badge px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/15 shadow-inner">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="font-mono font-black text-xl text-white tracking-widest uppercase">
+              {vehicle.plate}
+            </span>
+          </div>
           <button
             onClick={() => onDelete(vehicle)}
-            className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-2 rounded-lg transition-all"
+            className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-2 rounded-xl transition-all"
             title="Eliminar ingreso erróneo"
           >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
-        <span className={`text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 ${isOver
-          ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20 animate-subtle-pulse'
-          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-current" />
+        
+        <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full flex items-center gap-1.5 ${isOver
+          ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30 animate-subtle-pulse'
+          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
+          <span className="w-2 h-2 rounded-full bg-current" />
           {isOver ? 'Tiempo Extra' : 'En Curso'}
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 bg-black/20 rounded-xl p-3 border border-white/5">
-        <div>
-          <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider mb-1">Tiempo</p>
-          <p className="text-sm font-bold text-white">{formatElapsed(elapsed)}</p>
+      <div className="grid grid-cols-3 gap-2.5 bg-black/30 rounded-2xl p-3.5 border border-white/5">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+            <Clock className="w-3 h-3 text-zinc-500" /> Tiempo
+          </span>
+          <span className="text-sm font-bold text-white font-mono">{formatElapsed(elapsed)}</span>
         </div>
-        <div>
-          <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider mb-1">Ingreso</p>
-          <p className="text-sm font-bold text-zinc-300 font-mono">{formatTime(vehicle.entry_at)}</p>
+        <div className="flex flex-col">
+          <span className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+            <Timer className="w-3 h-3 text-zinc-500" /> Ingreso
+          </span>
+          <span className="text-sm font-bold text-zinc-300 font-mono">{formatTime(vehicle.entry_at)}</span>
         </div>
-        <div>
-          <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider mb-1">Cobro</p>
-          <p className="text-sm font-bold text-amber-400">{formatCLP(fee)}</p>
+        <div className="flex flex-col">
+          <span className="text-[10px] font-extrabold text-amber-400/80 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+            <DollarSign className="w-3 h-3 text-amber-400" /> Cobro
+          </span>
+          <span className="text-base font-black text-amber-400 font-mono tracking-tight">{formatCLP(fee)}</span>
         </div>
       </div>
 
-      <button onClick={() => onCheckout(vehicle, elapsed, fee)}
-        className="flex items-center justify-center gap-2 w-full bg-white/5 hover:bg-white hover:text-black border border-white/10 text-white font-bold text-sm py-3 rounded-xl transition-all duration-200">
-        Finalizar y Cobrar <ChevronRight className="w-4 h-4" />
+      <button
+        onClick={() => onCheckout(vehicle, elapsed, fee)}
+        className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-amber-400/15 to-amber-500/10 hover:from-amber-400 hover:to-amber-500 hover:text-black border border-amber-400/30 hover:border-amber-400 text-amber-400 font-black text-sm py-3.5 px-4 rounded-xl transition-all duration-200 shadow-md group-hover:shadow-amber-500/10"
+      >
+        <span>Finalizar y Cobrar</span>
+        <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
       </button>
     </div>
   )
 }
 
-// ─── Checkout Modal ───────────────────────────────────────────────────────────
+// ─── Checkout Modal (Fullscreen on Mobile, Extra Legible) ─────────────────────
 function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose }: {
   vehicle: Vehicle
   elapsed: number
@@ -150,140 +164,216 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, onConfirm, onClose 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto animate-fade-in">
-      <div className="glass-card rounded-2xl w-full max-w-sm animate-scale-up overflow-hidden my-auto">
-        <div className="bg-gradient-to-r from-amber-500/10 to-transparent p-6 border-b border-white/5 flex items-center gap-3">
-          <span className="text-2xl">🏁</span>
-          <div>
-            <h2 className="font-black text-white">Finalizar Estadía</h2>
-            <p className="text-xs text-zinc-500">Confirma el cobro</p>
-          </div>
-          <button onClick={onClose} disabled={loading} className="ml-auto text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="p-6 flex flex-col gap-4">
-          <div className="bg-black/30 border border-dashed border-white/10 rounded-xl p-4 flex flex-col gap-2.5">
-            {[
-              { l: 'Patente', v: vehicle.plate, mono: true },
-              { l: 'Fecha', v: formatDate(vehicle.entry_at) },
-              { l: 'Hora Ingreso', v: formatTime(vehicle.entry_at) },
-              { l: 'Hora Salida', v: formatTime(Date.now()) },
-              { l: 'Tiempo Total', v: formatElapsed(elapsed) },
-            ].map(({ l, v, mono }) => (
-              <div key={l} className="flex justify-between items-center">
-                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">{l}</span>
-                <span className={`text-sm font-bold text-white ${mono ? 'font-mono' : ''}`}>{v}</span>
-              </div>
-            ))}
-            
-            <div className="border-t border-dashed border-white/10 pt-2.5 flex flex-col gap-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Total a Pagar</span>
-                <div className="flex items-center gap-2">
-                  {isEditingFee ? (
-                    <div className="relative flex items-center">
-                      <span className="absolute left-2 text-zinc-500 text-xs font-bold">$</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={modifiedFee}
-                        onChange={e => {
-                          setModifiedFee(Number(e.target.value))
-                          setError('')
-                        }}
-                        className="w-24 bg-black/40 border border-amber-400/50 rounded-lg pl-5 pr-1.5 py-1 text-right text-xs font-black text-amber-400 focus:outline-none transition-all animate-fade-in"
-                      />
-                    </div>
-                  ) : (
-                    <span className="text-2xl font-black text-amber-400">{formatCLP(modifiedFee)}</span>
-                  )}
-                  
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditingFee(!isEditingFee)
-                      setError('')
-                    }}
-                    className="text-zinc-500 hover:text-white transition-colors p-1 rounded hover:bg-white/5 text-[10px] font-bold flex items-center gap-0.5 border border-white/5"
-                  >
-                    {isEditingFee ? '✓ Ok' : '✍️ Editar'}
-                  </button>
-                </div>
-              </div>
-
-              {/* If fee is modified, show reason input and admin password if operator */}
-              {modifiedFee !== fee && (
-                <div className="flex flex-col gap-2 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 mt-1 animate-fade-in">
-                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                    ⚠️ Autorización por cambio de tarifa
-                  </p>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Motivo del Ajuste (mín. 4 caracteres)</label>
-                    <textarea
-                      required
-                      rows={2}
-                      value={reason}
-                      onChange={e => { setReason(e.target.value); setError('') }}
-                      placeholder="Ej: Cobro manual acordado..."
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-amber-400/50 transition-all placeholder:text-zinc-600 resize-none text-zinc-100"
-                    />
-                  </div>
-                  
-                  {role === 'operator' && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Contraseña del Administrador</label>
-                      <input
-                        type="password"
-                        required
-                        value={adminPassword}
-                        onChange={e => { setAdminPassword(e.target.value); setError('') }}
-                        placeholder="Contraseña admin"
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-amber-400/50 transition-all placeholder:text-zinc-600 text-zinc-100"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+    <div className="fixed inset-0 z-50 bg-zinc-950/95 sm:bg-black/80 sm:backdrop-blur-md flex flex-col justify-between sm:items-center sm:justify-center p-0 sm:p-4 overflow-y-auto animate-fade-in">
+      <div className="w-full h-full sm:h-auto sm:max-w-xl bg-zinc-950 sm:glass-card sm:rounded-3xl sm:border sm:border-white/10 flex flex-col justify-between overflow-y-auto shadow-2xl animate-scale-up my-auto">
+        
+        {/* Header */}
+        <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-amber-500/15 to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 font-black text-xl shadow-lg">
+              🏁
+            </div>
+            <div>
+              <h2 className="text-lg sm:text-xl font-black text-white leading-tight">Cobro de Estadía</h2>
+              <p className="text-xs text-zinc-400">Comprobante y confirmación de pago</p>
             </div>
           </div>
 
-          {/* Payment Method Selector */}
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Método de Pago</span>
-            <div className="grid grid-cols-3 gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="text-zinc-400 hover:text-white p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+            title="Cerrar"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="p-5 sm:p-8 flex flex-col gap-6 flex-1 justify-center">
+          
+          {/* Plate & Hero Amount Banner */}
+          <div className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent border-2 border-amber-500/30 rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+            
+            {/* Plate Badge */}
+            <div className="plate-badge px-6 py-2.5 rounded-2xl border-2 border-amber-400/40 shadow-xl flex items-center gap-3">
+              <CarFront className="w-6 h-6 text-amber-400" />
+              <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase">
+                {vehicle.plate}
+              </span>
+            </div>
+
+            {/* Hero Amount */}
+            <div className="flex flex-col items-center mt-2">
+              <span className="text-xs sm:text-sm font-extrabold uppercase tracking-widest text-amber-400/80">
+                Total a Cobrar
+              </span>
+              
+              {isEditingFee ? (
+                <div className="relative flex items-center mt-2 mb-1">
+                  <span className="absolute left-3 text-amber-400 text-2xl font-black">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={modifiedFee}
+                    onChange={e => {
+                      setModifiedFee(Number(e.target.value))
+                      setError('')
+                    }}
+                    autoFocus
+                    className="w-48 bg-black/60 border-2 border-amber-400 rounded-2xl pl-8 pr-3 py-2 text-right text-3xl font-black text-amber-400 font-mono focus:outline-none shadow-lg shadow-amber-500/20"
+                  />
+                </div>
+              ) : (
+                <span className="text-5xl sm:text-6xl font-black text-amber-400 font-mono tracking-tight my-1 drop-shadow-md">
+                  {formatCLP(modifiedFee)}
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingFee(!isEditingFee)
+                  setError('')
+                }}
+                className="mt-1 text-zinc-400 hover:text-amber-300 transition-colors px-3 py-1 rounded-full hover:bg-amber-400/10 text-xs font-bold flex items-center gap-1.5 border border-white/10"
+              >
+                {isEditingFee ? '✓ Confirmar Tarifa' : '✍️ Ajustar Monto Manual'}
+              </button>
+            </div>
+
+            {/* Fee Edit Reason Drawer */}
+            {modifiedFee !== fee && (
+              <div className="w-full flex flex-col gap-2.5 bg-black/50 border border-amber-500/30 rounded-2xl p-4 mt-2 text-left animate-fade-in">
+                <p className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4" /> Autorización por Tarifa Modificada
+                </p>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase">Motivo del Ajuste (mín. 4 caracteres)</label>
+                  <textarea
+                    required
+                    rows={2}
+                    value={reason}
+                    onChange={e => { setReason(e.target.value); setError('') }}
+                    placeholder="Ej: Descuento autorizado por administración..."
+                    className="w-full bg-zinc-900 border border-white/15 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-amber-400 transition-all placeholder:text-zinc-600 resize-none"
+                  />
+                </div>
+                
+                {role === 'operator' && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase">Contraseña de Administrador</label>
+                    <input
+                      type="password"
+                      required
+                      value={adminPassword}
+                      onChange={e => { setAdminPassword(e.target.value); setError('') }}
+                      placeholder="••••••••"
+                      className="w-full bg-zinc-900 border border-white/15 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-amber-400 transition-all placeholder:text-zinc-600"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Stay Details Grid */}
+          <div className="grid grid-cols-3 gap-3 bg-black/40 border border-white/10 rounded-2xl p-4 shadow-inner">
+            <div className="flex flex-col items-center text-center p-2 rounded-xl bg-white/5 border border-white/5">
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Clock className="w-3 h-3 text-zinc-400" /> Entrada
+              </span>
+              <span className="text-base sm:text-lg font-black text-white font-mono">
+                {formatTime(vehicle.entry_at)}
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center text-center p-2 rounded-xl bg-white/5 border border-white/5">
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Timer className="w-3 h-3 text-zinc-400" /> Salida
+              </span>
+              <span className="text-base sm:text-lg font-black text-zinc-200 font-mono">
+                {formatTime(Date.now())}
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center text-center p-2 rounded-xl bg-amber-400/10 border border-amber-400/20">
+              <span className="text-[10px] font-black text-amber-400/90 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Hourglass className="w-3 h-3 text-amber-400" /> Tiempo
+              </span>
+              <span className="text-base sm:text-lg font-black text-amber-400 font-mono">
+                {formatElapsed(elapsed)}
+              </span>
+            </div>
+          </div>
+
+          {/* Payment Method Selector (Large Touch Targets) */}
+          <div className="flex flex-col gap-2.5">
+            <span className="text-xs font-extrabold text-zinc-400 uppercase tracking-wider">
+              Selecciona Método de Pago
+            </span>
+            <div className="grid grid-cols-3 gap-3">
               {[
-                { id: 'efectivo', label: '💵 Efectivo' },
-                { id: 'tarjeta', label: '💳 Tarjeta' },
-                { id: 'transferencia', label: '📱 Transfer' }
-              ].map(m => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setPaymentMethod(m.id as any)}
-                  className={`py-2.5 px-1 rounded-lg text-xs font-black transition-all duration-200 ${paymentMethod === m.id
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-lg shadow-amber-500/10'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  {m.label}
-                </button>
-              ))}
+                { id: 'efectivo', label: 'Efectivo', icon: Banknote },
+                { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard },
+                { id: 'transferencia', label: 'Transfer', icon: Smartphone }
+              ].map(m => {
+                const Icon = m.icon
+                const isSelected = paymentMethod === m.id
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setPaymentMethod(m.id as any)}
+                    className={`py-3.5 sm:py-4 px-2 rounded-2xl flex flex-col sm:flex-row items-center justify-center gap-2 text-sm font-black transition-all duration-200 border ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black border-amber-300 shadow-xl shadow-amber-500/20 scale-[1.03]'
+                        : 'bg-black/40 text-zinc-300 border-white/10 hover:border-white/25 hover:bg-white/5'
+                    }`}
+                  >
+                    <Icon className={`w-5 h-5 ${isSelected ? 'text-black' : 'text-amber-400'}`} />
+                    <span>{m.label}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 mt-1 text-xs text-red-400 animate-shake">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+            <div className="flex items-center gap-2 text-xs sm:text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl p-3 animate-shake">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
             </div>
           )}
         </div>
-        
-        <div className="flex flex-col sm:flex-row gap-3 px-6 pb-6">
-          <button onClick={onClose} disabled={loading} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 font-bold py-3 rounded-xl text-sm transition-all order-2 sm:order-1">Cancelar</button>
-          <button onClick={handleConfirm} disabled={loading} className="flex-[1.5] flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3 rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 order-1 sm:order-2">
+
+        {/* Bottom Actions (Prominent Confirm Button) */}
+        <div className="p-5 sm:p-6 border-t border-white/10 bg-black/30 flex flex-col gap-3">
+          <button
+            onClick={handleConfirm}
+            disabled={loading}
+            className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 active:scale-[0.98] text-black font-black text-lg sm:text-xl flex items-center justify-center gap-3 transition-all shadow-2xl shadow-amber-500/30 disabled:opacity-50"
+          >
             {loading ? (
-              <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-            ) : '✓ Confirmar Pago'}
+              <span className="w-6 h-6 border-3 border-black/30 border-t-black rounded-full animate-spin" />
+            ) : (
+              <>
+                <Check className="w-6 h-6 stroke-[3]" />
+                <span>Confirmar Pago y Liberar</span>
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="w-full py-3 text-zinc-400 hover:text-white font-bold text-sm transition-all rounded-xl hover:bg-white/5 border border-white/5"
+          >
+            Cancelar y Volver
           </button>
         </div>
+
       </div>
     </div>
   )
@@ -1048,105 +1138,164 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           </div>
         </div>
 
-        {/* ── PARKING TAB ── */}
+        {/* ── PARKING TAB (SPLIT LAYOUT: FIXED ENTRY FORM + SCROLLABLE ACTIVE LIST) ── */}
         {tab === 'parking' && (() => {
           const filteredVehicles = vehicles.filter(v =>
             v.plate.toUpperCase().includes(searchQuery.toUpperCase())
           )
           return (
-            <div className="flex flex-col gap-8 animate-fade-in">
-              {/* Input Card */}
-              <div className="glass-card rounded-2xl p-6 flex flex-col gap-5">
-                <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">📥</span>
-                    <h3 className="text-sm font-black text-white tracking-wide uppercase">Registrar Ingreso</h3>
-                  </div>
-                  <span className="text-xs bg-amber-400/10 text-amber-400 border border-amber-400/20 px-3.5 py-1 rounded-full font-bold">
-                    Tarifa: {formatCLP(tariff.base_fee)} / primera hora
-                  </span>
-                </div>
-                
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="flex-1 relative flex items-center">
-                    <CarFront className="absolute left-4 w-5 h-5 text-zinc-500" />
-                    <input
-                      value={plateInput}
-                      onChange={e => { setPlateInput(formatPlate(e.target.value)); setError('') }}
-                      onKeyDown={e => e.key === 'Enter' && addVehicle()}
-                      placeholder="Ej: ABCD12"
-                      maxLength={7}
-                      autoFocus
-                      style={{ paddingLeft: '3.25rem' }}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl pr-4 py-4 text-white text-lg font-bold tracking-widest placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-600 focus:outline-none focus:border-amber-400/60 focus:ring-1 focus:ring-amber-400/20 transition-all uppercase"
-                    />
-                  </div>
-                  <button onClick={addVehicle} disabled={loadingAdd}
-                    className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-50 text-black font-black px-8 py-4 rounded-xl transition-all shadow-lg shadow-amber-500/20 text-sm whitespace-nowrap">
-                    {loadingAdd ? <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <Plus className="w-5 h-5" />}
-                    Registrar Vehículo
-                  </button>
-                </div>
-                {error && (
-                  <div className="flex items-center gap-2 mt-1 text-sm text-red-400 animate-shake">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
-                  </div>
-                )}
-              </div>
+            <div className="flex flex-col gap-5 animate-fade-in w-full">
+              {/* SECTION 1: FIXED / STICKY REGISTRATION SECTION */}
+              <section className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-2xl -mx-4 px-4 sm:-mx-6 sm:px-6 md:-mx-8 md:px-8 py-2 border-b border-white/10 shadow-2xl shadow-black/80 transition-all">
+                <div className="glass-card rounded-2xl p-4 sm:p-5 flex flex-col gap-3.5 border-amber-400/25 shadow-2xl bg-zinc-900/90">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-sm font-black shadow-inner">
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                      </div>
+                      <div>
+                        <span className="text-xs sm:text-sm font-black text-white uppercase tracking-wider block">
+                          Ingreso de Vehículo
+                        </span>
+                      </div>
+                    </div>
 
-              {/* Title & Search bar */}
-              {vehicles.length > 0 && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2">
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    🚗 Vehículos Estacionados
-                    <span className="bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-xs font-bold text-zinc-400">
-                      {vehicles.length}
-                    </span>
-                  </h3>
-                  
-                  {/* Search Bar */}
-                  <div className="relative flex items-center w-full sm:max-w-xs">
-                    <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(formatPlate(e.target.value))}
-                      placeholder="Buscar patente..."
-                      className="w-full bg-black/30 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-sm text-white focus:outline-none focus:border-amber-400/60 focus:ring-1 focus:ring-amber-400/20 transition-all uppercase placeholder:normal-case placeholder:text-zinc-600 font-semibold tracking-wider placeholder:font-normal placeholder:tracking-normal"
-                    />
-                    {searchQuery && (
-                      <button 
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] bg-amber-400/15 text-amber-400 border border-amber-400/30 px-3 py-1 rounded-full font-black flex items-center gap-1.5 shadow-sm">
+                        <DollarSign className="w-3 h-3 text-amber-400" />
+                        Tarifa: {formatCLP(tariff.base_fee)} / 1ra hora
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 relative flex items-center group">
+                      <CarFront className="absolute left-4 w-5 h-5 text-zinc-500 group-focus-within:text-amber-400 transition-colors pointer-events-none" />
+                      <input
+                        value={plateInput}
+                        onChange={e => { setPlateInput(formatPlate(e.target.value)); setError('') }}
+                        onKeyDown={e => e.key === 'Enter' && addVehicle()}
+                        placeholder="INGRESAR PATENTE (EJ: ABCD12)"
+                        maxLength={7}
+                        autoFocus
+                        style={{ paddingLeft: '3.25rem' }}
+                        className="w-full bg-black/60 border-2 border-white/15 focus:border-amber-400 rounded-2xl pr-10 py-3.5 text-white text-lg sm:text-xl font-mono font-black tracking-widest placeholder:font-sans placeholder:font-bold placeholder:tracking-normal placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-400/20 transition-all uppercase shadow-inner"
+                      />
+                      {plateInput && (
+                        <button
+                          type="button"
+                          onClick={() => setPlateInput('')}
+                          className="absolute right-3 text-zinc-500 hover:text-white p-1 rounded-lg transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={addVehicle}
+                      disabled={loadingAdd || !plateInput.trim()}
+                      className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black font-black px-6 sm:px-8 py-3.5 sm:py-4 rounded-2xl transition-all shadow-xl shadow-amber-500/25 active:scale-[0.98] text-sm sm:text-base whitespace-nowrap cursor-pointer"
+                    >
+                      {loadingAdd ? (
+                        <span className="w-5 h-5 border-3 border-black/30 border-t-black rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Plus className="w-5 h-5 stroke-[3]" />
+                          <span>Registrar Ingreso</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-center gap-2 text-xs sm:text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 animate-shake">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* SECTION 2: SCROLLABLE ACTIVE VEHICLES SECTION */}
+              <section className="flex flex-col gap-3.5">
+                {/* Section Sub-header & Search */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/30 p-3 rounded-2xl border border-white/5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-lg">🚗</span>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-black text-white">Vehículos Estacionados</h3>
+                      <span className="bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-2.5 py-0.5 rounded-full text-xs font-black flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {vehicles.length} activo{vehicles.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Fast Search Bar */}
+                  {vehicles.length > 0 && (
+                    <div className="relative flex items-center w-full sm:max-w-xs">
+                      <Search className="absolute left-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(formatPlate(e.target.value))}
+                        placeholder="Buscar patente..."
+                        className="w-full bg-black/50 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400/60 focus:ring-1 focus:ring-amber-400/20 transition-all uppercase placeholder:normal-case placeholder:text-zinc-500 font-mono font-bold tracking-wider placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 text-zinc-500 hover:text-white transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Vehicles Scrollable List Container */}
+                <div className="overflow-y-auto custom-scrollbar max-h-[calc(100vh-330px)] sm:max-h-[calc(100vh-310px)] pr-1 pb-16">
+                  {vehicles.length === 0 ? (
+                    <div className="glass-card rounded-3xl p-12 sm:p-16 text-center border-dashed border-white/10 flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 rounded-3xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-3xl mb-4 shadow-lg shadow-amber-500/10">
+                        🅿️
+                      </div>
+                      <p className="text-lg font-black text-white mb-1">Sin vehículos en el estacionamiento</p>
+                      <p className="text-xs sm:text-sm text-zinc-400 max-w-sm">
+                        Ingresa una patente en la sección superior para registrar la entrada e iniciar el cronómetro de estadía.
+                      </p>
+                    </div>
+                  ) : filteredVehicles.length === 0 ? (
+                    <div className="glass-card rounded-3xl p-10 text-center border-dashed border-white/10 flex flex-col items-center justify-center">
+                      <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl mb-3">
+                        🔍
+                      </div>
+                      <p className="font-black text-white mb-1 text-base">Sin coincidencias para "{searchQuery}"</p>
+                      <p className="text-xs text-zinc-400 mb-4">No se encontró ningún vehículo activo con esa patente.</p>
+                      <button
                         onClick={() => setSearchQuery('')}
-                        className="absolute right-3 text-zinc-500 hover:text-white transition-colors"
+                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-xs font-black transition-all cursor-pointer"
                       >
-                        <X className="w-4 h-4" />
+                        Limpiar Búsqueda
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredVehicles.map(v => (
+                        <VehicleCard
+                          key={v.id}
+                          vehicle={v}
+                          tariff={tariff}
+                          onCheckout={openCheckout}
+                          onDelete={setDeletingVehicle}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {/* Vehicles grid */}
-              {vehicles.length === 0 ? (
-                <div className="glass-card rounded-2xl p-16 text-center border-dashed">
-                  <p className="text-4xl mb-3">🅿️</p>
-                  <p className="font-bold text-white mb-1">Sin vehículos activos</p>
-                  <p className="text-sm text-zinc-500">Ingresa la patente arriba para iniciar la estadía</p>
-                </div>
-              ) : filteredVehicles.length === 0 ? (
-                <div className="glass-card rounded-2xl p-12 text-center border-dashed">
-                  <p className="text-3xl mb-3">🔍</p>
-                  <p className="font-bold text-white mb-1">Sin resultados</p>
-                  <p className="text-sm text-zinc-500">No encontramos ningún vehículo con la patente "{searchQuery}"</p>
-                  <button onClick={() => setSearchQuery('')} className="mt-4 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-xs font-bold transition-all">
-                    Limpiar Búsqueda
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredVehicles.map(v => <VehicleCard key={v.id} vehicle={v} tariff={tariff} onCheckout={openCheckout} onDelete={setDeletingVehicle} />)}
-                </div>
-              )}
+              </section>
             </div>
           )
         })()}
