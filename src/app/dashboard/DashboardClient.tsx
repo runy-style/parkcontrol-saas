@@ -1082,23 +1082,23 @@ function BenefitsTab({
           </form>
         </div>
 
-        {/* Frequent Clients Ranking Table (7 cols on lg) */}
+        {/* Top 15 Frequent Clients Ranking Table (7 cols on lg) */}
         <div className="lg:col-span-7 glass-card rounded-3xl p-6 border border-white/10 shadow-2xl bg-zinc-900/90 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <div className="flex items-center justify-between border-b border-white/10 pb-4 flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 font-black">
                 🏆
               </div>
               <div>
                 <h3 className="font-black text-white text-base leading-tight">
-                  Ranking de Clientes del Mes
+                  Top 15 Clientes del Mes
                 </h3>
-                <p className="text-xs text-zinc-400">Patentes con mayor frecuencia en los últimos 30 días</p>
+                <p className="text-xs text-zinc-400">Patentes con mayor frecuencia de visitas en los últimos 30 días</p>
               </div>
             </div>
 
-            <span className="text-xs text-zinc-400 font-mono font-bold bg-black/40 px-3 py-1 rounded-xl border border-white/10">
-              {frequentClientsList.length} patentes
+            <span className="text-xs text-amber-400 font-mono font-bold bg-amber-400/10 px-3 py-1 rounded-xl border border-amber-400/20">
+              Mostrando Top {Math.min(15, frequentClientsList.length)} de {frequentClientsList.length}
             </span>
           </div>
 
@@ -1114,7 +1114,7 @@ function BenefitsTab({
               </thead>
               <tbody>
                 {frequentClientsList.length > 0 ? (
-                  frequentClientsList.map((client, idx) => {
+                  frequentClientsList.slice(0, 15).map((client, idx) => {
                     const isVip = client.visits >= threshold
                     return (
                       <tr key={client.plate} className="border-b border-white/5 hover:bg-white/5 transition-colors">
