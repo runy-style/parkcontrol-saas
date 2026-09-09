@@ -34,30 +34,37 @@ interface Props {
 
 
 // ─── Vehicle Card (50% Plate | 25% Entry & Elapsed Time | 25% Accumulated Fee) ───
-function VehicleCard({ vehicle, tariff, monthlyVisits, onCheckout, onDelete }: {
+function VehicleCard({ vehicle, tariff, monthlyVisits, hasRedeemedThisMonth, onCheckout, onDelete }: {
   vehicle: Vehicle
   tariff: Tariff
   monthlyVisits: number
+  hasRedeemedThisMonth?: boolean
   onCheckout: (v: Vehicle, elapsed: number, fee: number) => void
   onDelete: (v: Vehicle) => void
 }) {
+  const isVipPlate = vehicle.plate.toUpperCase() === 'RZGL43'
   const [elapsed, setElapsed] = useState(Date.now() - new Date(vehicle.entry_at).getTime())
   useEffect(() => {
     const id = setInterval(() => setElapsed(Date.now() - new Date(vehicle.entry_at).getTime()), 1000)
     return () => clearInterval(id)
   }, [vehicle.entry_at])
 
-  const fee = calcFee(elapsed, tariff)
+  const calculatedFee = calcFee(elapsed, tariff)
+  const fee = isVipPlate ? 0 : calculatedFee
   const mins = elapsed / 60000
   const isOver = mins > tariff.base_minutes
   const threshold = tariff.frequent_threshold || 10
-  const isLoyal = (tariff.frequent_benefit_enabled !== false) && monthlyVisits >= threshold
+  const isProgramActive = tariff.frequent_benefit_enabled !== false
+  const isLoyal = isProgramActive && monthlyVisits >= threshold && !hasRedeemedThisMonth && !isVipPlate
+  const isCycleCompleted = isProgramActive && monthlyVisits >= threshold && hasRedeemedThisMonth && !isVipPlate
 
   return (
     <div className={`glass-card rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-3.5 hover:-translate-y-1 transition-all duration-300 border ${
-      isLoyal
-        ? 'border-amber-400/50 shadow-amber-500/15 ring-1 ring-amber-400/30'
-        : 'border-white/10 hover:border-amber-400/40'
+      isVipPlate
+        ? 'border-amber-400 bg-amber-500/10 shadow-xl shadow-amber-500/20 ring-2 ring-amber-400/40'
+        : isLoyal
+          ? 'border-amber-400/50 shadow-amber-500/15 ring-1 ring-amber-400/30'
+          : 'border-white/10 hover:border-amber-400/40'
     } group shadow-lg bg-zinc-900/90`}>
       
       {/* Upper Data Grid (50% - 25% - 25%) */}
@@ -67,7 +74,7 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, onCheckout, onDelete }: {
         <div className="w-1/2 flex flex-col justify-between gap-2 pr-2.5 border-r border-white/10">
           <div className="flex items-center justify-between gap-1.5">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isVipPlate ? 'bg-amber-300 animate-ping' : 'bg-amber-400 animate-pulse'}`} />
               <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase truncate leading-none">
                 {vehicle.plate}
               </span>
@@ -83,19 +90,28 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, onCheckout, onDelete }: {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            {/* Globo de Conteo Mensual de Visitas */}
-            <span
-              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black shadow-sm ${
-                isLoyal
-                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-amber-500/25 animate-subtle-pulse'
-                  : monthlyVisits >= 3
-                    ? 'bg-purple-500/20 border border-purple-400/30 text-purple-300'
-                    : 'bg-white/10 border border-white/15 text-zinc-300'
-              }`}
-              title={`${monthlyVisits} ingresos registrados en los últimos 30 días`}
-            >
-              {isLoyal ? '👑' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
-            </span>
+            {/* VIP Banner or Conteo Mensual */}
+            {isVipPlate ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black bg-gradient-to-r from-amber-400 via-amber-500 to-amber-300 text-black shadow-md">
+                👑 VEHICULO VIP SIN COBRO xD
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black shadow-sm ${
+                  isLoyal
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-amber-500/25 animate-subtle-pulse'
+                    : isCycleCompleted
+                      ? 'bg-purple-500/25 border border-purple-400/40 text-purple-200'
+                      : monthlyVisits >= 3
+                        ? 'bg-purple-500/20 border border-purple-400/30 text-purple-300'
+                        : 'bg-white/10 border border-white/15 text-zinc-300'
+                }`}
+                title={isCycleCompleted ? `${monthlyVisits} visitas este mes. Ciclo completado (beneficio ya utilizado)` : `${monthlyVisits} ingresos registrados en los últimos 30 días`}
+              >
+                {isLoyal ? '👑' : isCycleCompleted ? '⭐' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
+                {isCycleCompleted && <span className="text-[9px] opacity-90">(Ciclo completado)</span>}
+              </span>
+            )}
 
             {/* Status badge */}
             <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${isOver
@@ -134,7 +150,7 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, onCheckout, onDelete }: {
             Valor
           </span>
           <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight drop-shadow-md leading-none">
-            {formatCLP(fee)}
+            {isVipPlate ? '$0 VIP' : formatCLP(fee)}
           </span>
         </div>
 
@@ -153,7 +169,7 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, onCheckout, onDelete }: {
 }
 
 // ─── Checkout Modal (Fullscreen on Mobile, Extra Legible) ─────────────────────
-function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tariff, onConfirm, onClose }: {
+function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tariff, hasRedeemedThisMonth, onConfirm, onClose }: {
   vehicle: Vehicle
   elapsed: number
   fee: number
@@ -161,16 +177,20 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tari
   orgId: string
   monthlyVisits: number
   tariff: Tariff
+  hasRedeemedThisMonth?: boolean
   onConfirm: (paymentMethod: string, finalFee: number, reason?: string) => Promise<void>
   onClose: () => void
 }) {
+  const isVipPlate = vehicle.plate.toUpperCase() === 'RZGL43'
   const threshold = tariff.frequent_threshold || 10
-  const isBenefitActive = (tariff.frequent_benefit_enabled !== false) && monthlyVisits >= threshold
+  const isProgramActive = tariff.frequent_benefit_enabled !== false
+  const isBenefitActive = isProgramActive && monthlyVisits >= threshold && !hasRedeemedThisMonth && !isVipPlate
   const benefitType = tariff.frequent_benefit_type || 'percent'
   const benefitValue = tariff.frequent_benefit_value !== undefined ? tariff.frequent_benefit_value : 50
 
   // Calculate default discounted fee if eligible
   const calculateBenefitFee = () => {
+    if (isVipPlate) return 0
     if (!isBenefitActive) return fee
     if (benefitType === 'free_stay') return 0
     if (benefitType === 'percent') return Math.round(fee * (1 - benefitValue / 100))
@@ -179,11 +199,18 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tari
   }
 
   const defaultBenefitFee = calculateBenefitFee()
+  const initialFee = isVipPlate ? 0 : (isBenefitActive ? defaultBenefitFee : fee)
   const [applyBenefit, setApplyBenefit] = useState(isBenefitActive)
-  const [modifiedFee, setModifiedFee] = useState<number>(isBenefitActive ? defaultBenefitFee : fee)
+  const [modifiedFee, setModifiedFee] = useState<number>(initialFee)
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('efectivo')
   const [isEditingFee, setIsEditingFee] = useState(false)
-  const [reason, setReason] = useState(isBenefitActive ? `Beneficio cliente frecuente (${monthlyVisits} visitas/mes)` : '')
+  const [reason, setReason] = useState(
+    isVipPlate
+      ? 'VEHICULO VIP SIN COBRO xD'
+      : isBenefitActive
+        ? `Beneficio cliente frecuente (${monthlyVisits} visitas/mes)`
+        : ''
+  )
   const [adminPassword, setAdminPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -205,7 +232,7 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tari
     setError('')
     const isFeeChanged = modifiedFee !== fee
 
-    if (isFeeChanged) {
+    if (isFeeChanged && !isVipPlate) {
       if (!reason.trim() || reason.trim().length < 4) {
         setError('Por favor, ingresa un motivo válido (mín. 4 caracteres).')
         return
@@ -233,7 +260,7 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tari
 
     setLoading(true)
     try {
-      await onConfirm(paymentMethod, modifiedFee, isFeeChanged ? reason.trim() : undefined)
+      await onConfirm(paymentMethod, modifiedFee, (isFeeChanged || isVipPlate) ? reason.trim() : undefined)
     } catch (err: any) {
       setError('Error al procesar el cobro.')
     } finally {
@@ -282,21 +309,64 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tari
                   {vehicle.plate}
                 </span>
               </div>
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-black shadow-md ${
-                  isBenefitActive
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black animate-subtle-pulse'
-                    : monthlyVisits >= 3
-                      ? 'bg-purple-500/20 border border-purple-400/40 text-purple-300'
-                      : 'bg-white/10 border border-white/15 text-zinc-300'
-                }`}
-              >
-                {isBenefitActive ? '👑' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
-              </span>
+              {isVipPlate ? (
+                <span className="px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r from-amber-400 to-amber-600 text-black shadow-md">
+                  👑 VIP SIN COBRO
+                </span>
+              ) : (
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-black shadow-md ${
+                    isBenefitActive
+                      ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black animate-subtle-pulse'
+                      : hasRedeemedThisMonth
+                        ? 'bg-purple-500/25 border border-purple-400/40 text-purple-200'
+                        : monthlyVisits >= 3
+                          ? 'bg-purple-500/20 border border-purple-400/40 text-purple-300'
+                          : 'bg-white/10 border border-white/15 text-zinc-300'
+                  }`}
+                >
+                  {isBenefitActive ? '👑' : hasRedeemedThisMonth ? '⭐' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
+                </span>
+              )}
             </div>
 
-            {/* VIP Loyalty Benefit Banner (if eligible) */}
-            {monthlyVisits >= threshold && (
+            {/* VIP Plate Notice */}
+            {isVipPlate && (
+              <div className="w-full p-4 rounded-2xl bg-gradient-to-r from-amber-500/25 via-purple-500/20 to-amber-500/25 border-2 border-amber-400 flex items-center justify-between gap-3 text-left shadow-xl animate-fade-in">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-3xl flex-shrink-0">👑</span>
+                  <div className="min-w-0">
+                    <span className="text-sm font-black text-amber-300 block">
+                      VEHICULO VIP SIN COBRO xD
+                    </span>
+                    <span className="text-xs text-zinc-300 block">
+                      Vehículo del dueño/administrador exento de cobro ($0)
+                    </span>
+                  </div>
+                </div>
+                <span className="text-xs font-black text-black bg-amber-400 px-3 py-1.5 rounded-xl shadow-md flex-shrink-0">
+                  VIP FREE
+                </span>
+              </div>
+            )}
+
+            {/* Ciclo completado aviso si ya canjeó */}
+            {!isVipPlate && hasRedeemedThisMonth && (
+              <div className="w-full p-3.5 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center gap-3 text-left animate-fade-in">
+                <span className="text-2xl flex-shrink-0">⭐</span>
+                <div className="min-w-0">
+                  <span className="text-xs font-black text-purple-300 uppercase tracking-wider block">
+                    Ciclo de Beneficios del Mes Completado
+                  </span>
+                  <span className="text-[11px] text-zinc-300 block mt-0.5">
+                    Esta patente ya utilizó su beneficio de cliente frecuente en este mes ({monthlyVisits} visitas registradas). Se aplica cobro estándar automáticamente.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* VIP Loyalty Benefit Banner (only if eligible and NOT yet redeemed in cycle) */}
+            {!isVipPlate && isBenefitActive && (
               <div className={`w-full p-3 sm:p-4 rounded-2xl border flex items-center justify-between gap-3 text-left transition-all ${
                 applyBenefit 
                   ? 'bg-amber-400/15 border-amber-400/50 shadow-lg shadow-amber-500/10'
@@ -830,6 +900,17 @@ function BenefitsTab({
     setEditEnabled(tariff.frequent_benefit_enabled !== false)
   }, [tariff])
 
+  const handleToggleStatus = async (newStatus: boolean) => {
+    setEditEnabled(newStatus)
+    await saveTariff({
+      ...tariff,
+      frequent_threshold: editThreshold,
+      frequent_benefit_type: editType,
+      frequent_benefit_value: editValue,
+      frequent_benefit_enabled: newStatus,
+    })
+  }
+
   const handleSaveBenefits = async (e: React.FormEvent) => {
     e.preventDefault()
     await saveTariff({
@@ -865,14 +946,20 @@ function BenefitsTab({
         </div>
 
         <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-          <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 border ${
-            editEnabled 
-              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-              : 'bg-zinc-800 text-zinc-400 border-white/10'
-          }`}>
-            <span className={`w-2 h-2 rounded-full ${editEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
-            {editEnabled ? 'Programa Activo' : 'Programa Pausado'}
-          </span>
+          <button
+            type="button"
+            onClick={() => handleToggleStatus(!editEnabled)}
+            disabled={savingTariff}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2.5 border transition-all cursor-pointer shadow-lg active:scale-95 ${
+              editEnabled 
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                : 'bg-zinc-800 text-zinc-300 border-white/10 hover:bg-zinc-700 hover:text-white'
+            }`}
+            title={editEnabled ? "Haz clic para desactivar de forma permanente" : "Haz clic para activar de forma permanente"}
+          >
+            <span className={`w-2.5 h-2.5 rounded-full ${editEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+            <span>{editEnabled ? 'Programa Activo (Desactivar)' : 'Programa Pausado (Activar)'}</span>
+          </button>
         </div>
       </div>
 
@@ -950,14 +1037,16 @@ function BenefitsTab({
               </div>
               <button
                 type="button"
-                onClick={() => setEditEnabled(!editEnabled)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                onClick={() => handleToggleStatus(!editEnabled)}
+                disabled={savingTariff}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md active:scale-95 ${
                   editEnabled
-                    ? 'bg-amber-400 text-black shadow-md'
-                    : 'bg-zinc-800 text-zinc-400 border border-white/10'
+                    ? 'bg-amber-400 text-black shadow-amber-500/20'
+                    : 'bg-zinc-800 text-zinc-400 border border-white/10 hover:text-white'
                 }`}
+                title="Haz clic para cambiar el estado de forma permanente"
               >
-                {editEnabled ? '✓ Activado' : 'Desactivado'}
+                {editEnabled ? '✓ Activado (Permanente)' : 'Desactivado (Permanente)'}
               </button>
             </div>
 
@@ -1196,6 +1285,26 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   const [searchQuery, setSearchQuery] = useState('')
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
 
+  // Sync benefits configuration from localStorage if available (guarantees permanent persistence)
+  useEffect(() => {
+    if (!orgId) return
+    try {
+      const stored = localStorage.getItem(`parkcontrol_benefits_config_${orgId}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        setTariff(prev => ({
+          ...prev,
+          frequent_benefit_enabled: parsed.enabled !== undefined ? parsed.enabled : prev.frequent_benefit_enabled,
+          frequent_threshold: parsed.threshold !== undefined ? parsed.threshold : prev.frequent_threshold,
+          frequent_benefit_type: parsed.type !== undefined ? parsed.type : prev.frequent_benefit_type,
+          frequent_benefit_value: parsed.value !== undefined ? parsed.value : prev.frequent_benefit_value,
+        }))
+      }
+    } catch (e) {
+      console.error('Error reading stored benefits config:', e)
+    }
+  }, [orgId])
+
   // Calendar State for Finance
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date())
   const [selectedDayStr, setSelectedDayStr] = useState<string>(toISODateString(new Date()))
@@ -1254,6 +1363,10 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   const addVehicle = async () => {
     const plate = formatPlate(plateInput)
     if (!plate) { setError('Ingresa una patente.'); return }
+    if (plate === 'RZGL43') {
+      setError('VEHICULO VIP SIN COBRO xD')
+      return
+    }
     if (plate.length < 5 || plate.length > 7) { setError('Patente inválida (5-7 caracteres).'); return }
     if (vehicles.find(v => v.plate === plate)) { setError('Este vehículo ya está estacionado.'); return }
     setLoadingAdd(true)
@@ -1300,6 +1413,21 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         reason,
         operatorId: profile.id
       })
+
+      // If a benefit was applied in checkout, record it in local storage to track monthly cycle completion
+      if (reason.toLowerCase().includes('beneficio')) {
+        try {
+          const key = `parkcontrol_claimed_benefits_${orgId}`
+          const raw = localStorage.getItem(key)
+          const map: Record<string, number[]> = raw ? JSON.parse(raw) : {}
+          const p = vehicle.plate.toUpperCase()
+          if (!map[p]) map[p] = []
+          map[p].push(Date.now())
+          localStorage.setItem(key, JSON.stringify(map))
+        } catch (e) {
+          console.error('Error updating claimed benefits storage:', e)
+        }
+      }
     }
 
     setCheckout(null)
@@ -1330,6 +1458,19 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
 
   const saveTariff = async (t: Tariff) => {
     setSavingTariff(true)
+
+    // Persist immediately in localStorage so it never resets across page reloads
+    try {
+      localStorage.setItem(`parkcontrol_benefits_config_${orgId}`, JSON.stringify({
+        enabled: t.frequent_benefit_enabled,
+        threshold: t.frequent_threshold,
+        type: t.frequent_benefit_type,
+        value: t.frequent_benefit_value,
+      }))
+    } catch (e) {
+      console.error('Error saving benefits to localStorage:', e)
+    }
+
     const updatePayload: any = {
       base_fee: t.base_fee,
       base_minutes: t.base_minutes,
@@ -1342,7 +1483,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     if (t.frequent_benefit_enabled !== undefined) updatePayload.frequent_benefit_enabled = t.frequent_benefit_enabled
 
     try {
-      const { error: updErr } = await supabase.from('tariffs').update(updatePayload).eq('id', t.id)
+      const { error: updErr } = await supabase.from('tariffs').update(updatePayload).eq('organization_id', orgId)
       if (updErr) {
         // Fallback to standard fields if custom migration columns are pending
         await supabase.from('tariffs').update({
@@ -1350,7 +1491,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           base_minutes: t.base_minutes,
           additional_fee: t.additional_fee,
           additional_minutes: t.additional_minutes,
-        }).eq('id', t.id)
+        }).eq('organization_id', orgId)
       }
     } catch (err) {
       console.error('Error saving tariff:', err)
@@ -1597,6 +1738,31 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
 
     return Object.values(clientsMap).sort((a, b) => b.visits - a.visits)
   }, [transactions, vehicles, thirtyDaysAgoMs])
+
+  // Helper to determine if a plate has already redeemed its monthly benefit in the current cycle
+  const hasPlateRedeemedBenefitInCycle = useCallback((plate: string) => {
+    const p = plate.toUpperCase()
+    // 1. Check in audit_events for fee_modified with benefit reason in last 30 days
+    const hasAudit = auditEvents.some(a =>
+      a.plate?.toUpperCase() === p &&
+      a.event_type === 'fee_modified' &&
+      a.reason?.toLowerCase().includes('beneficio') &&
+      new Date(a.created_at).getTime() >= thirtyDaysAgoMs
+    )
+    if (hasAudit) return true
+
+    // 2. Check in localStorage
+    try {
+      const raw = localStorage.getItem(`parkcontrol_claimed_benefits_${orgId}`)
+      if (raw) {
+        const map: Record<string, number[]> = JSON.parse(raw)
+        const timestamps: number[] = map[p] || []
+        if (timestamps.some(ts => ts >= thirtyDaysAgoMs)) return true
+      }
+    } catch {}
+
+    return false
+  }, [auditEvents, thirtyDaysAgoMs, orgId])
 
   const tabs = [
     { id: 'parking', label: 'Estacionamiento', icon: CarFront },
@@ -1854,26 +2020,50 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                     </button>
                   </div>
 
+                  {/* VIP Plate Warning Banner */}
+                  {formatPlate(plateInput) === 'RZGL43' && (
+                    <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/25 via-purple-500/20 to-amber-500/25 border-2 border-amber-400 text-amber-300 animate-bounce shadow-xl shadow-amber-500/20">
+                      <Crown className="w-6 h-6 text-amber-400 flex-shrink-0 animate-pulse" />
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                        <span className="font-black text-sm sm:text-base tracking-wide text-amber-300">
+                          VEHICULO VIP SIN COBRO xD
+                        </span>
+                        <span className="text-xs text-zinc-300 font-medium">
+                          (Tu vehículo está bloqueado para cobro en el sistema)
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Monthly Visits Live Balloon when typing a Plate */}
-                  {plateInput.length >= 4 && (() => {
-                    const typedVisits = monthlyVisitsByPlate[plateInput.toUpperCase()] || 0
+                  {plateInput.length >= 4 && formatPlate(plateInput) !== 'RZGL43' && (() => {
+                    const formattedP = formatPlate(plateInput)
+                    const typedVisits = monthlyVisitsByPlate[formattedP] || 0
                     const threshold = tariff.frequent_threshold || 10
-                    const isTypedLoyal = (tariff.frequent_benefit_enabled !== false) && typedVisits >= threshold
+                    const isProgramActive = tariff.frequent_benefit_enabled !== false
+                    const hasRedeemed = hasPlateRedeemedBenefitInCycle(formattedP)
+                    const isTypedLoyal = isProgramActive && typedVisits >= threshold && !hasRedeemed
+                    const isCycleDone = isProgramActive && typedVisits >= threshold && hasRedeemed
                     if (typedVisits === 0) return null
 
                     return (
-                      <div className="flex items-center gap-2 animate-fade-in">
-                        <span className={`px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5 shadow-md ${
+                      <div className="flex items-center gap-2 animate-fade-in flex-wrap">
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-black flex items-center gap-1.5 shadow-md ${
                           isTypedLoyal
                             ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-amber-500/20 animate-subtle-pulse'
-                            : typedVisits >= 3
-                              ? 'bg-purple-500/20 border border-purple-400/40 text-purple-300'
-                              : 'bg-white/10 border border-white/15 text-zinc-300'
+                            : isCycleDone
+                              ? 'bg-purple-500/25 border border-purple-400/40 text-purple-200'
+                              : typedVisits >= 3
+                                ? 'bg-purple-500/20 border border-purple-400/30 text-purple-300'
+                                : 'bg-white/10 border border-white/15 text-zinc-300'
                         }`}>
-                          {isTypedLoyal ? '👑' : typedVisits >= 3 ? '⭐' : '🚗'}
-                          <span>Patente con {typedVisits} {typedVisits === 1 ? 'ingreso registrado' : 'ingresos registrados'} en los últimos 30 días</span>
+                          {isTypedLoyal ? '👑' : isCycleDone ? '⭐' : typedVisits >= 3 ? '⭐' : '🚗'}
+                          <span>Patente con {typedVisits} {typedVisits === 1 ? 'ingreso registrado' : 'ingresos registrados'} en el mes</span>
                           {isTypedLoyal && (
                             <span className="underline ml-1 font-extrabold">¡Aplica Beneficio de Cliente Frecuente!</span>
+                          )}
+                          {isCycleDone && (
+                            <span className="ml-1 text-purple-300 font-bold">· Ciclo de beneficios completado (ya canjeado este mes)</span>
                           )}
                         </span>
                       </div>
@@ -1969,6 +2159,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                           vehicle={v}
                           tariff={tariff}
                           monthlyVisits={monthlyVisitsByPlate[v.plate.toUpperCase()] || 1}
+                          hasRedeemedThisMonth={hasPlateRedeemedBenefitInCycle(v.plate)}
                           onCheckout={openCheckout}
                           onDelete={setDeletingVehicle}
                         />
@@ -2655,6 +2846,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           orgId={orgId}
           monthlyVisits={monthlyVisitsByPlate[checkout.vehicle.plate.toUpperCase()] || 1}
           tariff={tariff}
+          hasRedeemedThisMonth={hasPlateRedeemedBenefitInCycle(checkout.vehicle.plate)}
           onConfirm={confirmCheckout}
           onClose={() => setCheckout(null)}
         />
