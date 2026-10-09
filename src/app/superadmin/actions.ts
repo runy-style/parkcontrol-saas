@@ -3,7 +3,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createServerUserClient } from '@/lib/supabase/server'
 import { isSuperAdmin } from '@/lib/superadmin'
-import { Tariff } from '@/lib/types'
+import { Tariff, PlanType, BillingStatus, SubscriptionPayment } from '@/lib/types'
 
 function createServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
@@ -43,6 +43,12 @@ export interface SuperAdminParking {
   name: string
   is_active: boolean
   created_at: string
+  plan_type?: PlanType
+  billing_status?: BillingStatus
+  current_period_end?: string | null
+  grace_period_days?: number
+  subscription_price?: number
+  billing_notes?: string | null
   tariff: Tariff | null
   activeVehiclesCount: number
   totalTransactionsCount: number
@@ -138,6 +144,12 @@ export async function getSuperAdminDataAction(): Promise<{ data?: SuperAdminData
         name: org.name,
         is_active: org.is_active ?? true,
         created_at: org.created_at,
+        plan_type: org.plan_type || 'monthly',
+        billing_status: org.billing_status || (org.is_active === false ? 'suspended' : 'active'),
+        current_period_end: org.current_period_end || null,
+        grace_period_days: org.grace_period_days ?? 3,
+        subscription_price: org.subscription_price || 25000,
+        billing_notes: org.billing_notes || null,
         tariff: tariffsByOrg[org.id] || null,
         activeVehiclesCount: activeVehiclesByOrg[org.id] || 0,
         totalTransactionsCount: txCountByOrg[org.id] || 0,
@@ -396,5 +408,337 @@ export async function exitSupportModeAction(): Promise<{ success?: boolean; erro
     return { success: true }
   } catch (err: any) {
     return { error: err.message }
+  }
+}
+
+// Permanently delete a parking organization and purge all related data and users from Supabase
+export async function deleteParkingOrganizationAction(orgId: string): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const caller = await verifySuperAdminCaller()
+    const admin = createServiceClient()
+
+    // 1. Fetch organization details
+    const { data: org, error: orgErr } = await admin
+      .from('organizations')
+      .select('id, name')
+      .eq('id', orgId)
+      .single()
+
+    if (orgErr || !org) {
+      throw new Error('El estacionamiento no existe o ya fue eliminado.')
+    }
+
+    // 2. Protect Casa Matriz
+    if (org.name === 'ParkControl Matriz (SaaS)') {
+      throw new Error('Operación denegada: Casa Matriz es la organización principal del sistema y no puede eliminarse.')
+    }
+
+    // 3. Safety net: If caller's profile currently points to this org (e.g. from support mode),
+    // revert their profile back to Casa Matriz first
+    const { data: callerProfile } = await admin
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', caller.id)
+      .single()
+
+    if (callerProfile?.organization_id === orgId) {
+      const { data: matrixOrg } = await admin
+        .from('organizations')
+        .select('id')
+        .eq('name', 'ParkControl Matriz (SaaS)')
+        .single()
+
+      if (matrixOrg) {
+        await admin
+          .from('profiles')
+          .update({ organization_id: matrixOrg.id })
+          .eq('id', caller.id)
+      }
+    }
+
+    // 4. Retrieve all profiles belonging to this organization
+    const { data: profiles, error: profErr } = await admin
+      .from('profiles')
+      .select('id, email, role')
+      .eq('organization_id', orgId)
+
+    if (profErr) {
+      throw new Error(`Error al leer los usuarios del estacionamiento: ${profErr.message}`)
+    }
+
+    // Filter out any super admin users so they are never touched in Auth
+    const regularUserIdsToDelete = (profiles || [])
+      .filter(p => !isSuperAdmin(p.email))
+      .map(p => p.id)
+
+    // 5. Delete dependent records in sequence to prevent FK violations & cascade cleanly
+    // a. audit_events
+    const { error: auditErr } = await admin
+      .from('audit_events')
+      .delete()
+      .eq('organization_id', orgId)
+    if (auditErr) console.warn('Note deleting audit_events:', auditErr.message)
+
+    // b. transactions
+    const { error: txErr } = await admin
+      .from('transactions')
+      .delete()
+      .eq('organization_id', orgId)
+    if (txErr) console.warn('Note deleting transactions:', txErr.message)
+
+    // c. shift_closures
+    const { error: closuresErr } = await admin
+      .from('shift_closures')
+      .delete()
+      .eq('organization_id', orgId)
+    if (closuresErr) console.warn('Note deleting shift_closures:', closuresErr.message)
+
+    // d. vehicles
+    const { error: vehErr } = await admin
+      .from('vehicles')
+      .delete()
+      .eq('organization_id', orgId)
+    if (vehErr) console.warn('Note deleting vehicles:', vehErr.message)
+
+    // e. tariffs
+    const { error: tariffErr } = await admin
+      .from('tariffs')
+      .delete()
+      .eq('organization_id', orgId)
+    if (tariffErr) console.warn('Note deleting tariffs:', tariffErr.message)
+
+    // f. profiles
+    const { error: profilesDelErr } = await admin
+      .from('profiles')
+      .delete()
+      .eq('organization_id', orgId)
+    if (profilesDelErr) console.warn('Note deleting profiles:', profilesDelErr.message)
+
+    // g. organizations
+    const { error: deleteOrgErr } = await admin
+      .from('organizations')
+      .delete()
+      .eq('id', orgId)
+
+    if (deleteOrgErr) {
+      throw new Error(`Error al eliminar la organización: ${deleteOrgErr.message}`)
+    }
+
+    // 6. Delete users from Supabase Auth to free storage & user quota
+    for (const uid of regularUserIdsToDelete) {
+      try {
+        await admin.auth.admin.deleteUser(uid)
+      } catch (authDelErr: any) {
+        console.warn(`No se pudo eliminar auth user ${uid}:`, authDelErr.message)
+      }
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('deleteParkingOrganizationAction error:', err)
+    return { error: err.message || 'Error desconocido al eliminar estacionamiento' }
+  }
+}
+
+// ─── ACCIONES DE SUSCRIPCIONES Y COBROS (SUPER ADMIN) ───
+
+// 1. Registrar pago manual (1 mes, 12 meses o personalizado)
+export async function recordManualPaymentAction(payload: {
+  orgId: string
+  periodMonths: number
+  amount: number
+  paymentMethod: string
+  notes?: string
+}): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const caller = await verifySuperAdminCaller()
+    const admin = createServiceClient()
+
+    const { data: org, error: orgErr } = await admin
+      .from('organizations')
+      .select('id, name, current_period_end, grace_period_days')
+      .eq('id', payload.orgId)
+      .single()
+
+    if (orgErr || !org) throw new Error('Estacionamiento no encontrado.')
+
+    // Calcular nueva fecha de vencimiento
+    const now = new Date()
+    let baseDate = now
+    if (org.current_period_end) {
+      const currentEnd = new Date(org.current_period_end)
+      if (currentEnd.getTime() > now.getTime()) {
+        baseDate = currentEnd
+      }
+    }
+
+    const daysToAdd = payload.periodMonths === 12 ? 365 : Math.max(1, payload.periodMonths * 30)
+    const newDueDate = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000)
+
+    // Actualizar organización
+    const { error: updErr } = await admin
+      .from('organizations')
+      .update({
+        current_period_end: newDueDate.toISOString(),
+        billing_status: 'active',
+        is_active: true,
+      })
+      .eq('id', payload.orgId)
+
+    if (updErr) throw new Error(updErr.message)
+
+    // Registrar en tabla de pagos (auditoría resiliente si la tabla aún no existe)
+    try {
+      await admin.from('subscription_payments').insert({
+        organization_id: payload.orgId,
+        amount: payload.amount,
+        period_months: payload.periodMonths,
+        payment_method: payload.paymentMethod || 'transferencia',
+        notes: payload.notes || `Pago manual registrado por ${caller.email}`,
+        registered_by: caller.id,
+      })
+    } catch (payErr: any) {
+      console.warn('subscription_payments insert notice:', payErr.message)
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('recordManualPaymentAction error:', err)
+    return { error: err.message || 'Error al registrar pago' }
+  }
+}
+
+// 2. Asignar licencia perpetua (compra definitiva del sistema)
+export async function setLifetimeLicenseAction(orgId: string): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const caller = await verifySuperAdminCaller()
+    const admin = createServiceClient()
+
+    const { error } = await admin
+      .from('organizations')
+      .update({
+        plan_type: 'lifetime',
+        billing_status: 'lifetime',
+        is_active: true,
+      })
+      .eq('id', orgId)
+
+    if (error) throw new Error(error.message)
+
+    try {
+      await admin.from('subscription_payments').insert({
+        organization_id: orgId,
+        amount: 0,
+        period_months: 0,
+        payment_method: 'licencia_perpetua',
+        notes: `Licencia perpetua (compra definitiva) otorgada por ${caller.email}`,
+        registered_by: caller.id,
+      })
+    } catch (e: any) {
+      console.warn('payment log note:', e.message)
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
+  }
+}
+
+// 3. Extender días de gracia o cortesía adicional
+export async function extendGracePeriodAction(payload: {
+  orgId: string
+  extraDays: number
+}): Promise<{ success?: boolean; error?: string }> {
+  try {
+    await verifySuperAdminCaller()
+    const admin = createServiceClient()
+
+    const { data: org, error: orgErr } = await admin
+      .from('organizations')
+      .select('id, current_period_end')
+      .eq('id', payload.orgId)
+      .single()
+
+    if (orgErr || !org) throw new Error('Estacionamiento no encontrado.')
+
+    const now = new Date()
+    let baseDate = now
+    if (org.current_period_end) {
+      const currentEnd = new Date(org.current_period_end)
+      if (currentEnd.getTime() > now.getTime()) {
+        baseDate = currentEnd
+      }
+    }
+
+    const newDueDate = new Date(baseDate.getTime() + payload.extraDays * 24 * 60 * 60 * 1000)
+
+    const { error } = await admin
+      .from('organizations')
+      .update({
+        current_period_end: newDueDate.toISOString(),
+        billing_status: 'active',
+        is_active: true,
+      })
+      .eq('id', payload.orgId)
+
+    if (error) throw new Error(error.message)
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
+  }
+}
+
+// 4. Actualizar configuración de suscripción
+export async function updateSubscriptionSettingsAction(payload: {
+  orgId: string
+  planType: PlanType
+  subscriptionPrice: number
+  gracePeriodDays: number
+  dueDate?: string | null
+  billingNotes?: string
+}): Promise<{ success?: boolean; error?: string }> {
+  try {
+    await verifySuperAdminCaller()
+    const admin = createServiceClient()
+
+    const updateData: any = {
+      plan_type: payload.planType,
+      subscription_price: payload.subscriptionPrice,
+      grace_period_days: payload.gracePeriodDays,
+      billing_notes: payload.billingNotes || null,
+    }
+
+    if (payload.dueDate !== undefined) {
+      updateData.current_period_end = payload.dueDate
+    }
+
+    const { error } = await admin
+      .from('organizations')
+      .update(updateData)
+      .eq('id', payload.orgId)
+
+    if (error) throw new Error(error.message)
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message }
+  }
+}
+
+// 5. Consultar historial de pagos registrados
+export async function getSubscriptionPaymentsAction(orgId: string): Promise<{ data?: SubscriptionPayment[]; error?: string }> {
+  try {
+    await verifySuperAdminCaller()
+    const admin = createServiceClient()
+
+    const { data, error } = await admin
+      .from('subscription_payments')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw new Error(error.message)
+    return { data: data || [] }
+  } catch (err: any) {
+    return { error: err.message, data: [] }
   }
 }

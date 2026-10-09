@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Tariff, Vehicle, Transaction, AuditEvent, ShiftClosure } from '@/lib/types'
+import { Tariff, Vehicle, Transaction, AuditEvent, ShiftClosure, BillingStatusInfo } from '@/lib/types'
+import { BANK_TRANSFER_DETAILS } from '@/lib/billing'
 import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate, toISODateString, formatFullDate } from '@/lib/utils'
 import { printClosurePDF } from '@/lib/printClosurePDF'
 import {
@@ -35,6 +36,7 @@ interface Props {
     is_support_mode?: boolean
   }
   tariff: Tariff
+  billingInfo?: BillingStatusInfo
 }
 
 
@@ -1353,12 +1355,13 @@ function BenefitsTab({
 }
 
 // ─── Main Dashboard Client ────────────────────────────────────────────────────
-export default function DashboardClient({ profile, tariff: initialTariff }: Props) {
+export default function DashboardClient({ profile, tariff: initialTariff, billingInfo }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const orgId = profile.organization_id
   const [tab, setTab] = useState('parking')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [paymentDetailsModalOpen, setPaymentDetailsModalOpen] = useState(false)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [closures, setClosures] = useState<ShiftClosure[]>([])
@@ -2046,6 +2049,100 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     ] : []),
   ]
 
+  // ─── PANTALLA DE BLOQUEO POR MOROSIDAD (SUBSCRIPTION LOCKED SCREEN) ───
+  if (billingInfo?.isBlocked && !profile.is_super_admin) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
+        {/* Ambient background light */}
+        <div className="fixed inset-0 pointer-events-none">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-red-600/15 rounded-full blur-3xl" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-lg bg-zinc-950/90 border border-red-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-red-950/50 backdrop-blur-xl flex flex-col gap-6 animate-scale-up">
+          {/* Header Icon & Title */}
+          <div className="flex flex-col items-center text-center gap-3">
+            <div className="w-16 h-16 rounded-3xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-3xl shadow-lg shadow-red-500/20">
+              🔒
+            </div>
+            <div>
+              <span className="text-[11px] font-black uppercase tracking-wider text-red-400 bg-red-500/10 border border-red-500/30 px-3 py-1 rounded-full">
+                Servicio Suspendido por Facturación
+              </span>
+              <h1 className="text-xl sm:text-2xl font-black text-white mt-2">
+                {profile.org_name || 'Tu Estacionamiento'}
+              </h1>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed max-w-md">
+              El periodo de suscripción ha expirado y se ha cumplido el plazo de gracia de cortesía. Para reactivar el ingreso y cobro de vehículos, regulariza el pago mensual del servicio.
+            </p>
+          </div>
+
+          {/* Cloud Data Safe Banner */}
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3.5 flex items-center gap-3 text-xs text-emerald-300">
+            <span className="text-lg">🛡️</span>
+            <span>Tus datos, historial de tickets y vehículos registrados están resguardados y 100% seguros en la nube.</span>
+          </div>
+
+          {/* Bank Transfer Details Box */}
+          <div className="bg-black/60 border border-white/10 rounded-2xl p-4 flex flex-col gap-3 text-xs">
+            <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
+              🏦 Datos para Transferencia Bancaria
+            </span>
+            <div className="grid grid-cols-2 gap-2 text-zinc-300">
+              <div>
+                <span className="text-[10px] text-zinc-500 block">Banco</span>
+                <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.bankName}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 block">Tipo de Cuenta</span>
+                <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.accountType}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 block">N° de Cuenta</span>
+                <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.accountNumber}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 block">RUT</span>
+                <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.rut}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-zinc-500 block">Titular</span>
+                <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.holderName}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-zinc-500 block">Email para comprobante</span>
+                <span className="font-mono font-bold text-amber-400">{BANK_TRANSFER_DETAILS.email}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-col gap-2.5">
+            <a
+              href={`https://wa.me/${BANK_TRANSFER_DETAILS.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                `Hola, te escribo desde "${profile.org_name}" para enviar el comprobante de reactivación de ParkControl SaaS.`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Enviar Comprobante por WhatsApp</span>
+            </a>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white font-bold text-xs transition-all cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Cerrar Sesión</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col relative overflow-x-hidden">
       {/* ── SUPER ADMIN SUPPORT MODE FLOATING BANNER ── */}
@@ -2071,6 +2168,42 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
             className="flex items-center gap-1.5 bg-black hover:bg-zinc-900 text-amber-400 hover:text-amber-300 px-3.5 py-2 rounded-xl text-xs font-black shadow-lg transition-all active:scale-95 cursor-pointer"
           >
             <span>← Salir a Consola de Dueño</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── BILLING GRACE PERIOD WARNING BANNER (PAST DUE) ── */}
+      {billingInfo?.status === 'past_due' && !profile.is_support_mode && (
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 text-white px-4 py-2.5 font-bold flex items-center justify-between shadow-lg z-40 sticky top-0 border-b border-black/20 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 animate-pulse text-amber-200" />
+            <span>
+              <strong>Aviso de Facturación:</strong> Tu suscripción está vencida. Cuentas con <strong>{billingInfo.graceDaysRemaining} día{billingInfo.graceDaysRemaining !== 1 ? 's' : ''}</strong> de gracia antes de la suspensión del servicio.
+            </span>
+          </div>
+          <button
+            onClick={() => setPaymentDetailsModalOpen(true)}
+            className="bg-black/60 hover:bg-black text-amber-300 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer flex-shrink-0 ml-3"
+          >
+            <span>Ver Datos de Pago</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── BILLING EXPIRING SOON BANNER ── */}
+      {billingInfo?.status === 'expiring_soon' && !profile.is_support_mode && (
+        <div className="bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border-b border-amber-500/30 text-amber-300 px-4 py-2 flex items-center justify-between z-40 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">🔔</span>
+            <span>
+              Tu suscripción vence en <strong>{billingInfo.daysRemaining} día{billingInfo.daysRemaining !== 1 ? 's' : ''}</strong> ({billingInfo.dueDateFormatted}).
+            </span>
+          </div>
+          <button
+            onClick={() => setPaymentDetailsModalOpen(true)}
+            className="bg-amber-400 hover:bg-amber-300 text-black px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex-shrink-0 ml-3"
+          >
+            Ver Datos de Pago
           </button>
         </div>
       )}
@@ -4163,6 +4296,80 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           orgName={profile.org_name}
           onClose={() => setViewingClosureReceipt(null)}
         />
+      )}
+      {/* ── MODAL: DATOS DE PAGO / TRANSFERENCIA ── */}
+      {paymentDetailsModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+          <div className="glass-card rounded-3xl w-full max-w-md border border-amber-400/30 shadow-2xl bg-zinc-950 p-6 my-auto animate-scale-up">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-amber-400 text-lg">
+                  💳
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base">Datos de Facturación y Pago</h3>
+                  <p className="text-xs text-zinc-400">Renovación de suscripción ParkControl</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPaymentDetailsModalOpen(false)}
+                className="text-zinc-500 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4 text-xs">
+              <div className="bg-black/60 border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
+                  Transferencia Electrónica
+                </span>
+                <div className="grid grid-cols-2 gap-2 text-zinc-300">
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">Banco</span>
+                    <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.bankName}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">Tipo Cuenta</span>
+                    <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.accountType}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">N° Cuenta</span>
+                    <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.accountNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">RUT</span>
+                    <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.rut}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-[10px] text-zinc-500 block">Titular</span>
+                    <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.holderName}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-[10px] text-zinc-500 block">Email Comprobante</span>
+                    <span className="font-mono font-bold text-amber-400">{BANK_TRANSFER_DETAILS.email}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-white/5 border border-white/10 rounded-2xl text-[11px] text-zinc-400 leading-relaxed">
+                Una vez realizada la transferencia, envía el comprobante por WhatsApp indicando el nombre de tu estacionamiento (<strong>{profile.org_name}</strong>) para registrar la renovación de inmediato.
+              </div>
+
+              <a
+                href={`https://wa.me/${BANK_TRANSFER_DETAILS.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                  `Hola, te escribo desde "${profile.org_name}" para enviar el comprobante de pago de mi suscripción de ParkControl SaaS.`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Enviar Comprobante por WhatsApp</span>
+              </a>
+            </div>
+          </div>
+        </div>
       )}
       </div>
     </div>

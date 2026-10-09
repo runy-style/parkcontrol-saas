@@ -1,10 +1,40 @@
 export type UserRole = 'super_admin' | 'admin' | 'operator'
 
+export type PlanType = 'trial' | 'monthly' | 'annual' | 'lifetime'
+export type BillingStatus = 'active' | 'trialing' | 'past_due' | 'suspended' | 'lifetime'
+
 export interface Organization {
   id: string
   name: string
   is_active: boolean
   created_at: string
+  plan_type?: PlanType
+  billing_status?: BillingStatus
+  current_period_end?: string | null
+  grace_period_days?: number
+  subscription_price?: number
+  billing_notes?: string | null
+}
+
+export interface SubscriptionPayment {
+  id: string
+  organization_id: string
+  amount: number
+  period_months: number
+  payment_method: string
+  notes?: string | null
+  registered_by?: string | null
+  created_at: string
+}
+
+export interface BillingStatusInfo {
+  status: 'active' | 'expiring_soon' | 'past_due' | 'suspended' | 'lifetime'
+  planType: PlanType
+  daysRemaining: number
+  isBlocked: boolean
+  dueDateFormatted: string | null
+  graceDaysRemaining: number
+  message: string
 }
 
 export interface Profile {

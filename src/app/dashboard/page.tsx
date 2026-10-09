@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { isSuperAdmin } from '@/lib/superadmin'
+import { calculateBillingStatus } from '@/lib/billing'
 import DashboardClient from './DashboardClient'
 import { Tariff } from '@/lib/types'
 
@@ -52,12 +53,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     }
   }
 
-  // Load organization details
+  // Load organization details including subscription & billing attributes
   const { data: org } = await supabase
     .from('organizations')
-    .select('id, name, is_active')
+    .select('id, name, is_active, plan_type, billing_status, current_period_end, grace_period_days, subscription_price')
     .eq('id', activeOrgId)
     .single()
+
+  // Calculate dynamic billing & lock status
+  const billingInfo = calculateBillingStatus(org, isSuperAdmin(user.email))
 
   // Load tariff for active organization
   const { data: tariffData } = await supabase
@@ -77,5 +81,5 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     is_support_mode: isSupportMode,
   }
 
-  return <DashboardClient profile={profileWithOrg} tariff={tariff} />
+  return <DashboardClient profile={profileWithOrg} tariff={tariff} billingInfo={billingInfo} />
 }

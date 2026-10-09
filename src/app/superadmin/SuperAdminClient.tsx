@@ -6,9 +6,12 @@ import { createClient } from '@/lib/supabase/client'
 import {
   Building2, ShieldCheck, CarFront, DollarSign, Users, Search, Plus,
   ExternalLink, Settings, Power, RefreshCw, KeyRound,
-  CheckCircle, X, LogOut, Filter, ShieldAlert
+  CheckCircle, X, LogOut, Filter, ShieldAlert, Trash2, AlertTriangle, Loader2,
+  CreditCard, Calendar, Check, Gift
 } from 'lucide-react'
 import { formatCLP, formatDate } from '@/lib/utils'
+import { calculateBillingStatus } from '@/lib/billing'
+import { PlanType, SubscriptionPayment } from '@/lib/types'
 import {
   SuperAdminData, SuperAdminParking,
   toggleOrganizationStatusAction,
@@ -17,7 +20,13 @@ import {
   createParkingUserAction,
   resetParkingUserPasswordAction,
   getSuperAdminDataAction,
-  setSupportModeOrgAction
+  setSupportModeOrgAction,
+  deleteParkingOrganizationAction,
+  recordManualPaymentAction,
+  setLifetimeLicenseAction,
+  extendGracePeriodAction,
+  updateSubscriptionSettingsAction,
+  getSubscriptionPaymentsAction
 } from './actions'
 
 interface Props {
@@ -39,6 +48,23 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
   const [createOrgOpen, setCreateOrgOpen] = useState(false)
   const [editingTariffParking, setEditingTariffParking] = useState<SuperAdminParking | null>(null)
   const [managingUsersParking, setManagingUsersParking] = useState<SuperAdminParking | null>(null)
+  const [deletingParking, setDeletingParking] = useState<SuperAdminParking | null>(null)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+
+  // Modals state: Facturación y Cobros
+  const [managingBillingParking, setManagingBillingParking] = useState<SuperAdminParking | null>(null)
+  const [billingTab, setBillingTab] = useState<'payment' | 'settings' | 'history'>('payment')
+  const [billingPaymentMonths, setBillingPaymentMonths] = useState(1)
+  const [billingPaymentAmount, setBillingPaymentAmount] = useState(25000)
+  const [billingPaymentMethod, setBillingPaymentMethod] = useState('transferencia')
+  const [billingPaymentNotes, setBillingPaymentNotes] = useState('')
+  const [billingPlanType, setBillingPlanType] = useState<PlanType>('monthly')
+  const [billingPriceSetting, setBillingPriceSetting] = useState(25000)
+  const [billingGraceSetting, setBillingGraceSetting] = useState(3)
+  const [billingPaymentsHistory, setBillingPaymentsHistory] = useState<SubscriptionPayment[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [billingActionError, setBillingActionError] = useState('')
 
   // Form states: Create Organization
   const [newOrgName, setNewOrgName] = useState('')
@@ -241,6 +267,138 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
         showToast('Error al ingresar a Modo Soporte: ' + res.error)
       } else {
         router.push(`/dashboard?support_org_id=${parking.id}`)
+      }
+    })
+  }
+
+  // Delete / Purge Parking Organization
+  const handleDeleteParking = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!deletingParking) return
+
+    const trimmed = deleteConfirmText.trim()
+    if (trimmed.toUpperCase() !== 'ELIMINAR' && trimmed.toLowerCase() !== deletingParking.name.toLowerCase().trim()) {
+      setDeleteError(`Debes escribir "ELIMINAR" o "${deletingParking.name}" para confirmar.`)
+      return
+    }
+
+    setDeleteError('')
+    startTransition(async () => {
+      const res = await deleteParkingOrganizationAction(deletingParking.id)
+      if (res.error) {
+        setDeleteError(res.error)
+      } else {
+        showToast(`Estacionamiento "${deletingParking.name}" y todos sus datos han sido eliminados de Supabase.`)
+        setDeletingParking(null)
+        setDeleteConfirmText('')
+        await reloadData()
+      }
+    })
+  }
+
+  // Open Billing Modal
+  const openBillingModal = async (parking: SuperAdminParking) => {
+    setManagingBillingParking(parking)
+    setBillingTab('payment')
+    setBillingPaymentMonths(1)
+    setBillingPaymentAmount(parking.subscription_price || 25000)
+    setBillingPaymentMethod('transferencia')
+    setBillingPaymentNotes('')
+    setBillingPlanType(parking.plan_type || 'monthly')
+    setBillingPriceSetting(parking.subscription_price || 25000)
+    setBillingGraceSetting(parking.grace_period_days ?? 3)
+    setBillingActionError('')
+    setBillingPaymentsHistory([])
+
+    setLoadingHistory(true)
+    const res = await getSubscriptionPaymentsAction(parking.id)
+    if (res.data) setBillingPaymentsHistory(res.data)
+    setLoadingHistory(false)
+  }
+
+  // Record Manual Payment
+  const handleRecordManualPayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!managingBillingParking) return
+    setBillingActionError('')
+
+    startTransition(async () => {
+      const res = await recordManualPaymentAction({
+        orgId: managingBillingParking.id,
+        periodMonths: Number(billingPaymentMonths),
+        amount: Number(billingPaymentAmount),
+        paymentMethod: billingPaymentMethod,
+        notes: billingPaymentNotes,
+      })
+
+      if (res.error) {
+        setBillingActionError(res.error)
+      } else {
+        showToast(`Pago de ${billingPaymentMonths} mes(es) registrado para "${managingBillingParking.name}".`)
+        await reloadData()
+        const updated = (await getSuperAdminDataAction()).data?.parkings.find(p => p.id === managingBillingParking.id)
+        if (updated) setManagingBillingParking(updated)
+        const hRes = await getSubscriptionPaymentsAction(managingBillingParking.id)
+        if (hRes.data) setBillingPaymentsHistory(hRes.data)
+      }
+    })
+  }
+
+  // Set Lifetime License
+  const handleSetLifetimeLicense = async () => {
+    if (!managingBillingParking) return
+    if (!confirm(`¿Asignar Licencia Perpetua (Compra Definitiva) a "${managingBillingParking.name}"? El estacionamiento no volverá a vencer jamás.`)) return
+
+    startTransition(async () => {
+      const res = await setLifetimeLicenseAction(managingBillingParking.id)
+      if (res.error) {
+        setBillingActionError(res.error)
+      } else {
+        showToast(`Licencia perpetua asignada con éxito a "${managingBillingParking.name}".`)
+        await reloadData()
+        const updated = (await getSuperAdminDataAction()).data?.parkings.find(p => p.id === managingBillingParking.id)
+        if (updated) setManagingBillingParking(updated)
+      }
+    })
+  }
+
+  // Extend Grace Period
+  const handleExtendGrace = async (days: number) => {
+    if (!managingBillingParking) return
+    startTransition(async () => {
+      const res = await extendGracePeriodAction({
+        orgId: managingBillingParking.id,
+        extraDays: days,
+      })
+      if (res.error) {
+        setBillingActionError(res.error)
+      } else {
+        showToast(`Se otorgaron +${days} días de cortesía a "${managingBillingParking.name}".`)
+        await reloadData()
+        const updated = (await getSuperAdminDataAction()).data?.parkings.find(p => p.id === managingBillingParking.id)
+        if (updated) setManagingBillingParking(updated)
+      }
+    })
+  }
+
+  // Save Plan Settings
+  const handleSaveBillingSettings = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!managingBillingParking) return
+    startTransition(async () => {
+      const res = await updateSubscriptionSettingsAction({
+        orgId: managingBillingParking.id,
+        planType: billingPlanType,
+        subscriptionPrice: Number(billingPriceSetting),
+        gracePeriodDays: Number(billingGraceSetting),
+      })
+      if (res.error) {
+        setBillingActionError(res.error)
+      } else {
+        showToast('Configuración de suscripción guardada correctamente.')
+        await reloadData()
+        const updated = (await getSuperAdminDataAction()).data?.parkings.find(p => p.id === managingBillingParking.id)
+        if (updated) setManagingBillingParking(updated)
       }
     })
   }
@@ -512,20 +670,53 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                           </div>
                         </div>
 
-                        {/* Status badge */}
-                        <div className="flex-shrink-0">
-                          {parking.is_active ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                              ACTIVO
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-red-500/15 text-red-400 border border-red-500/30">
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                              SUSPENDIDO
-                            </span>
-                          )}
-                        </div>
+                        {/* Status badges: Operativo + Facturación */}
+                        {(() => {
+                          const billing = calculateBillingStatus(parking, false)
+                          return (
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              {/* Operativo */}
+                              {parking.is_active ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                  ACTIVO
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-red-500/15 text-red-400 border border-red-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                                  SUSPENDIDO
+                                </span>
+                              )}
+
+                              {/* Facturación */}
+                              {billing.status === 'lifetime' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                  💎 PERPETUA
+                                </span>
+                              )}
+                              {billing.status === 'active' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                  ✓ AL DÍA ({billing.daysRemaining}d)
+                                </span>
+                              )}
+                              {billing.status === 'expiring_soon' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 animate-pulse">
+                                  ⚠️ VENCE ({billing.daysRemaining}d)
+                                </span>
+                              )}
+                              {billing.status === 'past_due' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-orange-500/15 text-orange-300 border border-orange-500/30 animate-pulse">
+                                  ⏳ GRACIA ({billing.graceDaysRemaining}d)
+                                </span>
+                              )}
+                              {billing.status === 'suspended' && parking.is_active && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-red-500/15 text-red-300 border border-red-500/30">
+                                  🛑 BLOQ. PAGO
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       {/* Admin info bar */}
@@ -543,6 +734,29 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                           </span>
                         </div>
                       </div>
+
+                      {/* Facturación info bar */}
+                      {(() => {
+                        const billing = calculateBillingStatus(parking, false)
+                        return (
+                          <div className="bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-xs flex items-center justify-between gap-2">
+                            <div className="min-w-0 truncate">
+                              <span className="text-[10px] text-zinc-500 uppercase font-bold block">Plan / Tarifa SaaS</span>
+                              <span className="text-zinc-200 font-bold truncate block text-[11px]">
+                                {parking.plan_type === 'lifetime'
+                                  ? '💎 Compra Perpetua'
+                                  : `${formatCLP(parking.subscription_price || 25000)}/mes (${parking.plan_type === 'annual' ? 'Anual' : 'Mensual'})`}
+                              </span>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <span className="text-[10px] text-zinc-500 uppercase font-bold block">Vencimiento</span>
+                              <span className="font-mono font-bold text-[11px] truncate block text-amber-300">
+                                {billing.status === 'lifetime' ? 'Ilimitado' : billing.dueDateFormatted || 'Por configurar'}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })()}
 
                       {/* ── MATRIZ DE MÉTRICAS EN BLOQUES (2x2) ── */}
                       <div className="grid grid-cols-2 gap-2.5">
@@ -606,12 +820,22 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                         <span>Ingresar en Modo Soporte</span>
                       </button>
 
-                      {/* Botones secundarios: Tarifas, Claves y Suspender */}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      {/* Botones secundarios: Cobros, Tarifas, Claves y Suspender (4 columnas) */}
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openBillingModal(parking)}
+                          className="flex items-center justify-center gap-1 py-2 px-1.5 rounded-xl bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 text-amber-300 hover:text-white text-[11px] font-black transition-all cursor-pointer shadow-sm shadow-amber-500/10"
+                          title="Gestionar suscripción, pagos y vencimientos"
+                        >
+                          <CreditCard className="w-3 h-3" />
+                          <span>Cobros</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => openEditTariff(parking)}
-                          className="flex items-center justify-center gap-1 py-2 px-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white text-[11px] font-bold transition-all cursor-pointer"
+                          className="flex items-center justify-center gap-1 py-2 px-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white text-[11px] font-bold transition-all cursor-pointer"
                           title="Modificar tarifas del estacionamiento"
                         >
                           <Settings className="w-3 h-3" />
@@ -625,7 +849,7 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                             setAddUserError('')
                             setResetError('')
                           }}
-                          className="flex items-center justify-center gap-1 py-2 px-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white text-[11px] font-bold transition-all cursor-pointer"
+                          className="flex items-center justify-center gap-1 py-2 px-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white text-[11px] font-bold transition-all cursor-pointer"
                           title="Ver usuarios y restablecer accesos"
                         >
                           <KeyRound className="w-3 h-3" />
@@ -635,7 +859,7 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                         <button
                           type="button"
                           onClick={() => handleToggleStatus(parking)}
-                          className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl border transition-all cursor-pointer text-[11px] font-bold ${
+                          className={`flex items-center justify-center gap-1 py-2 px-1.5 rounded-xl border transition-all cursor-pointer text-[11px] font-bold ${
                             parking.is_active
                               ? 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30 text-red-400'
                               : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
@@ -646,6 +870,28 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                           <span>{parking.is_active ? 'Pausar' : 'Activar'}</span>
                         </button>
                       </div>
+
+                      {/* Botón Peligro: Eliminar / Purgar Local de Muestra */}
+                      {parking.name !== 'ParkControl Matriz (SaaS)' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeletingParking(parking)
+                            setDeleteConfirmText('')
+                            setDeleteError('')
+                          }}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-red-500/5 hover:bg-red-500/15 border border-red-500/20 hover:border-red-500/40 text-red-400 hover:text-red-300 text-[11px] font-bold transition-all cursor-pointer active:scale-98"
+                          title="Eliminar estacionamiento y liberar memoria en Supabase"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Eliminar Local Definitivamente</span>
+                        </button>
+                      ) : (
+                        <div className="w-full text-center py-1.5 text-[10px] text-amber-400/80 font-mono flex items-center justify-center gap-1.5 bg-amber-400/5 border border-amber-400/20 rounded-xl">
+                          <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Organización Principal Protegida</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -1104,6 +1350,477 @@ export default function SuperAdminClient({ initialData, currentUserEmail, curren
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: ELIMINAR / PURGAR ESTACIONAMIENTO DE SUPABASE ── */}
+      {deletingParking && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+          <div className="glass-card rounded-3xl w-full max-w-lg border border-red-500/30 shadow-2xl shadow-red-950/50 bg-zinc-950 p-6 my-auto animate-scale-up">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400 text-lg font-bold">
+                  <Trash2 className="w-5 h-5 text-red-400" />
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base flex items-center gap-2">
+                    Eliminar Estacionamiento
+                    <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/40 px-2 py-0.5 rounded-full font-mono uppercase">
+                      Purgar Supabase
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-400">Elimina el local de muestra y libera memoria y cuota de usuarios</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isPending) {
+                    setDeletingParking(null)
+                    setDeleteConfirmText('')
+                    setDeleteError('')
+                  }
+                }}
+                disabled={isPending}
+                className="text-zinc-500 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10 transition-colors disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDeleteParking} className="flex flex-col gap-4 text-xs">
+              {/* Danger Warning Banner */}
+              <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="text-zinc-300 leading-relaxed text-[11px]">
+                  <p className="font-bold text-red-400 mb-1">
+                    ¡Esta acción es definitiva e irreversible!
+                  </p>
+                  Al confirmar, se eliminarán permanentemente de Supabase todos los datos de este local para liberar memoria y evitar cuotas innecesarias.
+                </div>
+              </div>
+
+              {/* Resumen de elementos a purgar */}
+              <div className="bg-black/50 border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                  <span className="text-zinc-400 font-medium">Estacionamiento a purgar:</span>
+                  <span className="font-black text-white text-sm">{deletingParking.name}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-1 text-center font-mono">
+                  <div className="bg-white/5 rounded-xl p-2 border border-white/5">
+                    <span className="text-[10px] text-zinc-500 block font-sans">Usuarios / Claves</span>
+                    <span className="text-sm font-bold text-blue-400">{deletingParking.users.length}</span>
+                  </div>
+                  <div className="bg-white/5 rounded-xl p-2 border border-white/5">
+                    <span className="text-[10px] text-zinc-500 block font-sans">Autos Registrados</span>
+                    <span className="text-sm font-bold text-emerald-400">{deletingParking.activeVehiclesCount}</span>
+                  </div>
+                  <div className="bg-white/5 rounded-xl p-2 border border-white/5">
+                    <span className="text-[10px] text-zinc-500 block font-sans">Tickets Históricos</span>
+                    <span className="text-sm font-bold text-amber-400">{deletingParking.totalTransactionsCount}</span>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-zinc-500 pt-1">
+                  * También se purgarán tarifas, auditorías y cierres de caja. Las cuentas de acceso serán dadas de baja de Supabase Auth.
+                </p>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs font-bold">
+                  {deleteError}
+                </div>
+              )}
+
+              {/* Input de confirmación */}
+              <div>
+                <label className="text-[11px] font-bold text-zinc-300 block mb-1.5">
+                  Para confirmar, escribe <span className="text-red-400 font-mono font-black">ELIMINAR</span> o el nombre exacto del local:
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  disabled={isPending}
+                  placeholder={`Escribe ELIMINAR o "${deletingParking.name}"`}
+                  value={deleteConfirmText}
+                  onChange={e => {
+                    setDeleteConfirmText(e.target.value)
+                    if (deleteError) setDeleteError('')
+                  }}
+                  className="w-full bg-black/70 border border-red-500/30 focus:border-red-500 rounded-xl px-3.5 py-2.5 text-white font-mono placeholder:text-zinc-600 focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    setDeletingParking(null)
+                    setDeleteConfirmText('')
+                    setDeleteError('')
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white font-bold text-xs transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={
+                    isPending ||
+                    (deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR' &&
+                      deleteConfirmText.trim().toLowerCase() !== deletingParking.name.toLowerCase().trim())
+                  }
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:from-red-950 disabled:to-zinc-900 disabled:border-red-900/30 text-white font-black text-xs flex items-center gap-2 shadow-lg shadow-red-600/20 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 active:scale-95 border border-red-500/30"
+                >
+                  {isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Purgando de Supabase...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Purgar y Eliminar Definitivamente</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL: GESTIÓN DE COBROS Y SUSCRIPCIÓN (SUPER ADMIN) ── */}
+      {managingBillingParking && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+          <div className="glass-card rounded-3xl w-full max-w-lg border border-amber-400/30 shadow-2xl bg-zinc-950 p-6 my-auto animate-scale-up">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-amber-400 text-lg">
+                  💳
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base">Cobros y Suscripción</h3>
+                  <p className="text-xs text-zinc-400">{managingBillingParking.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setManagingBillingParking(null)}
+                className="text-zinc-500 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Status summary banner */}
+            {(() => {
+              const b = calculateBillingStatus(managingBillingParking, false)
+              return (
+                <div className="p-3 bg-black/60 rounded-2xl border border-white/5 flex items-center justify-between gap-3 text-xs mb-4">
+                  <div>
+                    <span className="text-[10px] text-zinc-500 uppercase font-bold block">Estado Actual</span>
+                    <span className="font-black text-white">{b.message}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-zinc-500 uppercase font-bold block">Vence</span>
+                    <span className="font-mono font-bold text-amber-300">
+                      {b.status === 'lifetime' ? '💎 Ilimitado' : b.dueDateFormatted || 'Por configurar'}
+                    </span>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Tabs selector */}
+            <div className="grid grid-cols-3 gap-1 p-1 bg-white/5 rounded-xl border border-white/5 mb-4 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setBillingTab('payment')}
+                className={`py-2 rounded-lg transition-all cursor-pointer ${
+                  billingTab === 'payment' ? 'bg-amber-400 text-black font-black shadow-md' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                💵 Registrar Pago
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingTab('settings')}
+                className={`py-2 rounded-lg transition-all cursor-pointer ${
+                  billingTab === 'settings' ? 'bg-amber-400 text-black font-black shadow-md' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                ⚙️ Plan y Cortesía
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingTab('history')}
+                className={`py-2 rounded-lg transition-all cursor-pointer ${
+                  billingTab === 'history' ? 'bg-amber-400 text-black font-black shadow-md' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                📜 Historial ({billingPaymentsHistory.length})
+              </button>
+            </div>
+
+            {billingActionError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs font-bold mb-4">
+                {billingActionError}
+              </div>
+            )}
+
+            {/* TAB 1: REGISTRAR PAGO MANUAL */}
+            {billingTab === 'payment' && (
+              <form onSubmit={handleRecordManualPayment} className="flex flex-col gap-4 text-xs">
+                <div>
+                  <label className="text-[11px] font-bold text-zinc-400 block mb-1.5">Periodo a Renovar *</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBillingPaymentMonths(1)
+                        setBillingPaymentAmount(managingBillingParking.subscription_price || 25000)
+                      }}
+                      className={`py-2.5 px-3 rounded-xl border font-bold text-xs transition-all cursor-pointer ${
+                        billingPaymentMonths === 1
+                          ? 'bg-amber-400/20 border-amber-400 text-amber-300'
+                          : 'bg-black/50 border-white/10 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      +1 Mes (30 días)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBillingPaymentMonths(12)
+                        setBillingPaymentAmount((managingBillingParking.subscription_price || 25000) * 10)
+                      }}
+                      className={`py-2.5 px-3 rounded-xl border font-bold text-xs transition-all cursor-pointer ${
+                        billingPaymentMonths === 12
+                          ? 'bg-amber-400/20 border-amber-400 text-amber-300'
+                          : 'bg-black/50 border-white/10 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      +1 Año (365 días)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillingPaymentMonths(3)}
+                      className={`py-2.5 px-3 rounded-xl border font-bold text-xs transition-all cursor-pointer ${
+                        billingPaymentMonths === 3
+                          ? 'bg-amber-400/20 border-amber-400 text-amber-300'
+                          : 'bg-black/50 border-white/10 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      +3 Meses
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Monto Pagado ($ CLP) *</label>
+                    <input
+                      type="number"
+                      required
+                      value={billingPaymentAmount}
+                      onChange={e => setBillingPaymentAmount(Number(e.target.value))}
+                      className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Medio de Pago</label>
+                    <select
+                      value={billingPaymentMethod}
+                      onChange={e => setBillingPaymentMethod(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-bold cursor-pointer"
+                    >
+                      <option value="transferencia">Transferencia Bancaria</option>
+                      <option value="efectivo">Efectivo</option>
+                      <option value="mercadopago">Mercado Pago</option>
+                      <option value="flow">Flow.cl</option>
+                      <option value="otro">Otro</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-zinc-400 block mb-1">Notas / N° de Comprobante (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Transferencia Banco Estado N° 982182"
+                    value={billingPaymentNotes}
+                    onChange={e => setBillingPaymentNotes(e.target.value)}
+                    className="w-full bg-black/60 border border-white/10 rounded-xl px-3.5 py-2 text-white font-medium"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setManagingBillingParking(null)}
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 text-xs font-bold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isPending}
+                    className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
+                  >
+                    {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    <span>Registrar Pago y Activar</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 2: PLAN Y CORTESÍA */}
+            {billingTab === 'settings' && (
+              <div className="flex flex-col gap-4 text-xs">
+                {/* Licencia Perpetua (Compra Definitiva) */}
+                <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-2xl flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-purple-300 text-sm flex items-center gap-1.5">
+                      💎 Licencia Perpetua (Compra Definitiva)
+                    </span>
+                    {managingBillingParking.plan_type === 'lifetime' && (
+                      <span className="bg-purple-500/20 text-purple-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-purple-500/40">
+                        ACTIVA
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Si el cliente compró el software de forma definitiva, puedes asignarle una licencia permanente para que nunca se bloquee ni tenga fecha de vencimiento.
+                  </p>
+                  {managingBillingParking.plan_type !== 'lifetime' && (
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={handleSetLifetimeLicense}
+                      className="mt-1 py-2 px-3 bg-purple-600 hover:bg-purple-500 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/20 cursor-pointer transition-all active:scale-95"
+                    >
+                      <span>⭐ Asignar Licencia Perpetua (Sin Vencimiento)</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Días de Cortesía / Gracia adicional */}
+                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col gap-2">
+                  <span className="font-black text-amber-300 text-sm flex items-center gap-1.5">
+                    ⏳ Otorgar Días de Cortesía
+                  </span>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Extiende la fecha de corte sin registrar cobro, ideal si el cliente solicita unos días extras para transferir.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleExtendGrace(3)}
+                      className="py-2 bg-black/60 hover:bg-amber-400 hover:text-black border border-white/10 text-amber-300 font-bold rounded-xl text-xs cursor-pointer transition-all"
+                    >
+                      +3 Días
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleExtendGrace(5)}
+                      className="py-2 bg-black/60 hover:bg-amber-400 hover:text-black border border-white/10 text-amber-300 font-bold rounded-xl text-xs cursor-pointer transition-all"
+                    >
+                      +5 Días
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleExtendGrace(7)}
+                      className="py-2 bg-black/60 hover:bg-amber-400 hover:text-black border border-white/10 text-amber-300 font-bold rounded-xl text-xs cursor-pointer transition-all"
+                    >
+                      +7 Días
+                    </button>
+                  </div>
+                </div>
+
+                {/* Formulario de parámetros de plan */}
+                <form onSubmit={handleSaveBillingSettings} className="border-t border-white/10 pt-3 flex flex-col gap-3">
+                  <span className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">
+                    Ajustar Parámetros de Suscripción
+                  </span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Precio Mensual ($ CLP)</label>
+                      <input
+                        type="number"
+                        value={billingPriceSetting}
+                        onChange={e => setBillingPriceSetting(Number(e.target.value))}
+                        className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Días de Gracia Habituales</label>
+                      <input
+                        type="number"
+                        value={billingGraceSetting}
+                        onChange={e => setBillingGraceSetting(Number(e.target.value))}
+                        className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="submit"
+                      disabled={isPending}
+                      className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white font-black rounded-xl text-xs cursor-pointer transition-all"
+                    >
+                      Guardar Parámetros
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* TAB 3: HISTORIAL DE PAGOS */}
+            {billingTab === 'history' && (
+              <div className="flex flex-col gap-3 text-xs">
+                {loadingHistory ? (
+                  <div className="p-8 text-center text-zinc-500">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                    Cargando historial de pagos...
+                  </div>
+                ) : billingPaymentsHistory.length === 0 ? (
+                  <div className="p-8 text-center text-zinc-500 border border-dashed border-white/10 rounded-2xl">
+                    No hay pagos registrados para este cliente aún.
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto flex flex-col gap-2">
+                    {billingPaymentsHistory.map(pay => (
+                      <div key={pay.id} className="p-3 bg-black/50 border border-white/5 rounded-2xl flex items-center justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-white text-xs block">
+                            {formatCLP(pay.amount)} • {pay.period_months === 0 ? 'Licencia Perpetua' : `+${pay.period_months} mes(es)`}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block">
+                            {formatDate(pay.created_at)} • Método: {pay.payment_method}
+                          </span>
+                          {pay.notes && (
+                            <span className="text-[10px] text-amber-400/90 italic block mt-0.5">
+                              "{pay.notes}"
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-emerald-400 text-xs font-black">✓ REGISTRADO</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

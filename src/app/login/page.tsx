@@ -1,14 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { loginAction } from './actions'
 import { Eye, EyeOff, LogIn } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
-  const supabase = createClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
@@ -30,20 +29,16 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        if (error.message.includes('Invalid login credentials')) {
-          setError('Email o contraseña incorrectos. Verifica tus datos.')
-        } else {
-          setError(`Error de acceso: ${error.message}`)
-        }
+      const res = await loginAction({ email, password })
+      if (res.error) {
+        setError(res.error)
         setLoading(false)
-      } else {
-        router.push('/dashboard')
+      } else if (res.redirectUrl) {
+        router.push(res.redirectUrl)
         router.refresh()
       }
     } catch (err: any) {
-      setError(`Error de conexión: ${err?.message || 'Failed to fetch'}. Por favor recarga la página.`)
+      setError(`Error de conexión: ${err?.message || 'Error al iniciar sesión'}.`)
       setLoading(false)
     }
   }
