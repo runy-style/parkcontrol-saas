@@ -9,9 +9,15 @@ export function cn(...inputs: ClassValue[]) {
 export function calcFee(ms: number, tariff: Tariff): number {
   const minutes = ms / 60000
   if (minutes <= 0) return 0
-  if (minutes <= tariff.base_minutes) return tariff.base_fee
-  const extra = Math.ceil((minutes - tariff.base_minutes) / tariff.additional_minutes)
-  return tariff.base_fee + extra * tariff.additional_fee
+  let fee = tariff.base_fee
+  if (minutes > tariff.base_minutes) {
+    const extra = Math.ceil((minutes - tariff.base_minutes) / tariff.additional_minutes)
+    fee = tariff.base_fee + extra * tariff.additional_fee
+  }
+  if (tariff.max_fee && tariff.max_fee > 0 && fee > tariff.max_fee) {
+    return tariff.max_fee
+  }
+  return fee
 }
 
 export function formatCLP(n: number): string {

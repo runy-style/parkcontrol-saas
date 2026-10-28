@@ -1,2 +1,2 @@
 $env:PATH = "C:\Program Files\nodejs;" + $env:PATH
-npm run dev
+npm.cmd run dev

@@ -7,8 +7,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'ParkControl — Sistema de Gestión de Estacionamiento',
-  description: 'Plataforma profesional para gestión de estacionamientos. Control de vehículos, cobros y reportes en tiempo real.',
+  title: 'ParkControl PRO — Software para Estacionamientos | Cobro al Segundo y Gestión en la Nube',
+  description: 'La plataforma SaaS líder en gestión de estacionamientos y playas de autos. Cobro al segundo, tickets por WhatsApp, arqueo ciego y control en tiempo real desde cualquier dispositivo.',
   manifest: '/manifest.json',
   icons: { apple: '/icon-192.png' },
 }

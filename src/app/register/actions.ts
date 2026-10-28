@@ -32,6 +32,15 @@ export async function registerAction(formData: {
 }): Promise<{ error?: string }> {
   const { orgName, fullName, email, password } = formData
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || supabaseUrl.includes('placeholder') || !serviceRoleKey || serviceRoleKey.includes('placeholder')) {
+    return {
+      error: 'La base de datos Supabase aún no está conectada. Debes configurar NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el archivo .env.local.',
+    }
+  }
+
   // Usamos el cliente de SERVICE ROLE para crear todo sin depender de sesión activa
   const admin = createServiceClient()
 

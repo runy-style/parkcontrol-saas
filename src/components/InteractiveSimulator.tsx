@@ -13,6 +13,7 @@ import {
   Clock,
   DollarSign,
   Sparkles,
+  MessageCircle,
 } from 'lucide-react'
 
 type VehicleType = 'auto' | 'moto' | 'camion'
@@ -275,13 +276,24 @@ export default function InteractiveSimulator() {
                 </div>
               </div>
 
-              <button
-                onClick={handleReset}
-                className="w-full py-3.5 bg-amber-400 hover:bg-amber-300 text-black font-black text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all shadow-lg shadow-amber-500/20"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Probar Otra Simulación
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <a
+                  href={`https://wa.me/?text=Comprobante%20de%20Estacionamiento%20ParkControl%0APatente:%20${ticketModal.plate}%0ATiempo:%20${ticketModal.durationMin}%20min%0ATotal:%20$${ticketModal.totalCost}%20CLP`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
+                >
+                  <MessageCircle className="w-4 h-4 text-black" />
+                  <span>Simular Envío WhatsApp</span>
+                </a>
+                <button
+                  onClick={handleReset}
+                  className="flex-1 py-3.5 bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <RotateCcw className="w-4 h-4 text-amber-400" />
+                  <span>Probar Otra Patente</span>
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

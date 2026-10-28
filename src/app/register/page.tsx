@@ -3,13 +3,12 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { registerAction } from './actions'
+import { loginAction } from '@/app/login/actions'
 import { Building2, User, Mail, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react'
 
 export default function RegisterPage() {
   const router = useRouter()
-  const supabase = createClient()
   const [step, setStep] = useState(1)
   const [orgName, setOrgName] = useState('')
   const [fullName, setFullName] = useState('')
@@ -36,15 +35,15 @@ export default function RegisterPage() {
       return
     }
 
-    // 2. Iniciar sesión con las credenciales recién creadas
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password })
-    if (loginError) {
-      setError('Cuenta creada. Ve a Iniciar Sesión para entrar.')
+    // 2. Iniciar sesión en el servidor con las credenciales recién creadas
+    const loginRes = await loginAction({ email, password })
+    if (loginRes.error) {
+      setError('Cuenta creada exitosamente. Por favor ve a Iniciar Sesión para acceder.')
       setLoading(false)
       return
     }
 
-    router.push('/dashboard')
+    router.push(loginRes.redirectUrl || '/dashboard')
     router.refresh()
   }
 

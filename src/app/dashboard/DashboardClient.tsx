@@ -2,17 +2,21 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Tariff, Vehicle, Transaction, AuditEvent, ShiftClosure } from '@/lib/types'
+import { Tariff, Vehicle, Transaction, AuditEvent, ShiftClosure, BillingStatusInfo } from '@/lib/types'
+import { BANK_TRANSFER_DETAILS } from '@/lib/billing'
 import { calcFee, formatCLP, formatElapsed, formatTime, formatDate, formatPlate, toISODateString, formatFullDate } from '@/lib/utils'
+import { printClosurePDF } from '@/lib/printClosurePDF'
 import {
   CarFront, BarChart3, DollarSign, Settings, LogOut, Plus,
   Clock, TrendingUp, Users, ChevronRight, ChevronLeft, AlertCircle, X, Download, MessageCircle,
   Search, Trash2, Menu, Lock, CreditCard, Banknote, Smartphone, Check, Sparkles,
   ArrowRight, ShieldAlert, Timer, Calendar as CalendarIcon, Hourglass, Eye, FileText,
-  AlertTriangle, CalendarDays, Gift, Crown, Award, Flame, Zap
+  AlertTriangle, CalendarDays, Gift, Crown, Award, Flame, Zap, Printer, Filter
 } from 'lucide-react'
 import { createOperatorAction, verifyAdminCredentialsAction, logAuditEventAction } from './actions'
+import { exitSupportModeAction } from '@/app/superadmin/actions'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Cell, AreaChart, Area
@@ -28,8 +32,11 @@ interface Props {
     full_name: string
     email: string
     org_name: string
+    is_super_admin?: boolean
+    is_support_mode?: boolean
   }
   tariff: Tariff
+  billingInfo?: BillingStatusInfo
 }
 
 
@@ -57,6 +64,7 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, hasRedeemedThisMonth, onC
   const isProgramActive = tariff.frequent_benefit_enabled !== false
   const isLoyal = isProgramActive && monthlyVisits >= threshold && !hasRedeemedThisMonth && !isVipPlate
   const isCycleCompleted = isProgramActive && monthlyVisits >= threshold && hasRedeemedThisMonth && !isVipPlate
+  const isMaxCapped = !isVipPlate && !!tariff.max_fee && tariff.max_fee > 0 && fee >= tariff.max_fee
 
   return (
     <div className={`glass-card rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-3.5 hover:-translate-y-1 transition-all duration-300 border ${
@@ -67,37 +75,37 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, hasRedeemedThisMonth, onC
           : 'border-white/10 hover:border-amber-400/40'
     } group shadow-lg bg-zinc-900/90`}>
       
-      {/* Upper Data Grid (50% - 25% - 25%) */}
-      <div className="flex items-stretch justify-between gap-2">
+      {/* Upper Data Grid (Flex Layout with dedicated price space) */}
+      <div className="flex items-stretch justify-between gap-1.5 sm:gap-2">
         
-        {/* 50% Left Section: Plate, Monthly Visits Globo/Badge, Delete button & Status badge */}
-        <div className="w-1/2 flex flex-col justify-between gap-2 pr-2.5 border-r border-white/10">
-          <div className="flex items-center justify-between gap-1.5">
+        {/* Left Section: Plate, Monthly Visits Badge, Delete button & Status */}
+        <div className="flex-1 min-w-0 flex flex-col justify-between gap-2 pr-2 border-r border-white/10">
+          <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isVipPlate ? 'bg-amber-300 animate-ping' : 'bg-amber-400 animate-pulse'}`} />
-              <span className="font-mono font-black text-2xl sm:text-3xl text-white tracking-widest uppercase truncate leading-none">
+              <span className="font-mono font-black text-xl sm:text-2xl text-white tracking-widest uppercase truncate leading-none">
                 {vehicle.plate}
               </span>
             </div>
             
             <button
               onClick={() => onDelete(vehicle)}
-              className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-1.5 rounded-lg transition-all flex-shrink-0 cursor-pointer"
+              className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-1 rounded-lg transition-all flex-shrink-0 cursor-pointer"
               title="Eliminar ingreso erróneo"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
             {/* VIP Banner or Conteo Mensual */}
             {isVipPlate ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black bg-gradient-to-r from-amber-400 via-amber-500 to-amber-300 text-black shadow-md">
-                👑 VEHICULO VIP SIN COBRO xD
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-400 via-amber-500 to-amber-300 text-black shadow-md">
+                👑 VIP $0
               </span>
             ) : (
               <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black shadow-sm ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm ${
                   isLoyal
                     ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-amber-500/25 animate-subtle-pulse'
                     : isCycleCompleted
@@ -106,30 +114,29 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, hasRedeemedThisMonth, onC
                         ? 'bg-purple-500/20 border border-purple-400/30 text-purple-300'
                         : 'bg-white/10 border border-white/15 text-zinc-300'
                 }`}
-                title={isCycleCompleted ? `${monthlyVisits} visitas este mes. Ciclo completado (beneficio ya utilizado)` : `${monthlyVisits} ingresos registrados en los últimos 30 días`}
+                title={isCycleCompleted ? `${monthlyVisits} visitas este mes. Ciclo completado` : `${monthlyVisits} visitas`}
               >
-                {isLoyal ? '👑' : isCycleCompleted ? '⭐' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits} {monthlyVisits === 1 ? 'visita' : 'visitas'}/mes
-                {isCycleCompleted && <span className="text-[9px] opacity-90">(Ciclo completado)</span>}
+                {isLoyal ? '👑' : isCycleCompleted ? '⭐' : monthlyVisits >= 3 ? '⭐' : '🚗'} {monthlyVisits}v
               </span>
             )}
 
             {/* Status badge */}
-            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${isOver
+            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${isOver
               ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30 animate-subtle-pulse'
               : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-current" />
-              {isOver ? 'T. Extra' : 'En Curso'}
+              {isOver ? 'Extra' : 'Activo'}
             </span>
           </div>
         </div>
 
-        {/* 25% Center Section: Entry time and Elapsed time */}
-        <div className="w-1/4 flex flex-col justify-between gap-1 px-2 border-r border-white/10 text-left">
+        {/* Center Section: Entry time and Elapsed time */}
+        <div className="w-[85px] sm:w-[95px] flex-shrink-0 flex flex-col justify-between gap-1 px-2 border-r border-white/10 text-left">
           <div className="flex flex-col">
             <span className="text-[9px] font-black text-zinc-500 uppercase tracking-wider flex items-center gap-1">
               <Timer className="w-2.5 h-2.5 text-zinc-400" /> Ingreso
             </span>
-            <span className="text-xs sm:text-sm font-bold text-zinc-200 font-mono truncate leading-tight">
+            <span className="text-xs font-bold text-zinc-200 font-mono truncate leading-tight">
               {formatTime(vehicle.entry_at)}
             </span>
           </div>
@@ -138,20 +145,33 @@ function VehicleCard({ vehicle, tariff, monthlyVisits, hasRedeemedThisMonth, onC
             <span className="text-[9px] font-black text-zinc-500 uppercase tracking-wider flex items-center gap-1">
               <Clock className="w-2.5 h-2.5 text-zinc-400" /> Tiempo
             </span>
-            <span className="text-xs sm:text-sm font-black text-white font-mono truncate leading-tight">
+            <span className="text-xs font-black text-white font-mono truncate leading-tight">
               {formatElapsed(elapsed)}
             </span>
           </div>
         </div>
 
-        {/* 25% Right Section: Large accumulated fee */}
-        <div className="w-1/4 flex flex-col items-end justify-center pl-2 text-right">
-          <span className="text-[9px] font-black text-amber-400/80 uppercase tracking-wider mb-0.5">
-            Valor
-          </span>
-          <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight drop-shadow-md leading-none">
+        {/* Right Section: Large accumulated fee with dedicated spacing */}
+        <div className="w-[105px] sm:w-[120px] flex-shrink-0 flex flex-col items-end justify-center pl-2 text-right">
+          <div className="flex items-center gap-1 justify-end">
+            {isMaxCapped ? (
+              <span className="text-[9px] font-black text-amber-300 bg-amber-400/20 px-1.5 py-0.5 rounded border border-amber-400/40 uppercase tracking-wider whitespace-nowrap">
+                🛡️ Tope Máx
+              </span>
+            ) : (
+              <span className="text-[9px] font-black text-amber-400/80 uppercase tracking-wider">
+                Valor
+              </span>
+            )}
+          </div>
+          <span className="text-lg sm:text-xl font-black text-amber-400 font-mono tracking-tight drop-shadow-md leading-none whitespace-nowrap mt-1">
             {isVipPlate ? '$0 VIP' : formatCLP(fee)}
           </span>
+          {isMaxCapped && (
+            <span className="text-[8px] font-bold text-zinc-400 mt-1 whitespace-nowrap block">
+              Tarifa congelada
+            </span>
+          )}
         </div>
 
       </div>
@@ -360,6 +380,21 @@ function CheckoutModal({ vehicle, elapsed, fee, role, orgId, monthlyVisits, tari
                   </span>
                   <span className="text-[11px] text-zinc-300 block mt-0.5">
                     Esta patente ya utilizó su beneficio de cliente frecuente en este mes ({monthlyVisits} visitas registradas). Se aplica cobro estándar automáticamente.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Tope de Tarifa Máxima Banner */}
+            {!isVipPlate && !!tariff.max_fee && tariff.max_fee > 0 && fee >= tariff.max_fee && (
+              <div className="w-full p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center gap-3 text-left animate-fade-in">
+                <span className="text-2xl flex-shrink-0">🛡️</span>
+                <div className="min-w-0">
+                  <span className="text-xs font-black text-amber-300 uppercase tracking-wider block">
+                    Tope de Tarifa Máxima Fijado
+                  </span>
+                  <span className="text-[11px] text-zinc-300 block mt-0.5">
+                    El cobro por tiempo acumulado alcanzó el límite máximo configurado de {formatCLP(tariff.max_fee)}.
                   </span>
                 </div>
               </div>
@@ -698,9 +733,11 @@ function ActionAuthModal({ title, description, role, orgId, onConfirm, onClose }
   )
 }
 // ─── Shift Closure Modal ──────────────────────────────────────────────────────
-function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
+function ShiftClosureModal({ transactions, auditEvents, closures, initialCash, onConfirm, onClose }: {
   transactions: Transaction[]
   auditEvents: AuditEvent[]
+  closures?: ShiftClosure[]
+  initialCash: number | null
   onConfirm: () => void
   onClose: () => void
 }) {
@@ -710,6 +747,8 @@ function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
   const cashTotal = transactions.filter(t => t.payment_method === 'efectivo').reduce((s, t) => s + t.fee, 0)
   const cardTotal = transactions.filter(t => t.payment_method === 'tarjeta').reduce((s, t) => s + t.fee, 0)
   const transferTotal = transactions.filter(t => t.payment_method === 'transferencia').reduce((s, t) => s + t.fee, 0)
+  
+  const expectedCash = cashTotal + (initialCash || 0)
 
   const avg = transactions.length ? Math.round(total / transactions.length) : 0
   const max = transactions.length ? Math.max(...transactions.map(t => t.fee)) : 0
@@ -717,12 +756,20 @@ function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
   const dateStr = formatDate(now.getTime())
   const timeStr = formatTime(now.getTime())
 
-  // Filter audit events of current active shift
-  const shiftAudits = auditEvents.filter(a => !a.closure_id)
+  // Shift start time: timestamp of previous closure, or earliest activity of current shift
+  const lastClosureTime = closures && closures.length > 0 ? new Date(closures[0].closed_at).getTime() : 0
+  const shiftStartTime = lastClosureTime > 0
+    ? lastClosureTime
+    : (transactions.length > 0
+        ? Math.min(...transactions.map(t => new Date(t.entry_at || t.created_at).getTime()))
+        : new Date().setHours(0, 0, 0, 0))
+
+  // Filter audit events strictly of current active shift being closed (no older orphan events)
+  const shiftAudits = auditEvents.filter(a => !a.closure_id && new Date(a.created_at).getTime() >= shiftStartTime)
   const deletedVehicles = shiftAudits.filter(a => a.event_type === 'vehicle_deleted')
   const modifiedFees = shiftAudits.filter(a => a.event_type === 'fee_modified')
 
-  let receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${transactions.length}\nTotal Recaudado:  ${formatCLP(total)}\n\nDESGLOSE DE PAGOS:\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avg)}\nMayor Cobro:      ${formatCLP(max)}\n`
+  let receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${transactions.length}\nTotal Recaudado:  ${formatCLP(total)}\n\nDESGLOSE DE PAGOS:\n- Caja Inicial:   ${formatCLP(initialCash || 0)}\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\n[ TOTAL EFECTIVO ESPERADO EN CAJA: ${formatCLP(expectedCash)} ]\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avg)}\nMayor Cobro:      ${formatCLP(max)}\n`
 
   if (shiftAudits.length > 0) {
     receiptText += `\n=====================================\n        REGISTROS DE AUDITORÍA\n=====================================\n`
@@ -779,6 +826,26 @@ function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
+              onClick={() => {
+                const tempClosure: ShiftClosure = {
+                  id: 'PREVIO',
+                  organization_id: '',
+                  closed_by: '',
+                  closed_at: now.toISOString(),
+                  total_vehicles: transactions.length,
+                  total_revenue: total,
+                  avg_fee: avg,
+                  max_fee: max,
+                  receipt_text: receiptText
+                }
+                printClosurePDF(tempClosure, 'ParkControl')
+              }}
+              title="Exportar a PDF / Imprimir"
+              className="text-amber-400 hover:text-white p-2 rounded-xl bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/20 transition-all cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+            </button>
+            <button
               onClick={handleDownload}
               title="Descargar TXT"
               className="text-zinc-400 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
@@ -818,7 +885,7 @@ function ShiftClosureModal({ transactions, auditEvents, onConfirm, onClose }: {
 }
 
 // ─── Viewing Closure Receipt Modal (Historical Viewer) ────────────────────────
-function ViewingClosureReceiptModal({ closure, onClose }: { closure: ShiftClosure; onClose: () => void }) {
+function ViewingClosureReceiptModal({ closure, orgName, onClose }: { closure: ShiftClosure; orgName?: string; onClose: () => void }) {
   const dateStr = formatDate(closure.closed_at)
   const timeStr = formatTime(closure.closed_at)
 
@@ -834,34 +901,60 @@ function ViewingClosureReceiptModal({ closure, onClose }: { closure: ShiftClosur
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
+  const handlePrintPDF = () => {
+    printClosurePDF(closure, orgName || 'ParkControl')
+  }
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="glass-card rounded-2xl w-full max-w-md flex flex-col max-h-[85vh] animate-scale-up overflow-hidden my-auto border border-white/10 shadow-2xl bg-zinc-950">
-        <div className="flex-shrink-0 bg-gradient-to-r from-emerald-500/15 to-transparent p-5 border-b border-white/10 flex items-center justify-between">
+      <div className="glass-card rounded-2xl w-full max-w-lg flex flex-col max-h-[88vh] animate-scale-up overflow-hidden my-auto border border-white/10 shadow-2xl bg-zinc-950">
+        <div className="flex-shrink-0 bg-gradient-to-r from-emerald-500/15 via-amber-500/10 to-transparent p-5 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-lg">
               🔒
             </div>
             <div>
               <h2 className="font-black text-white text-base leading-tight">Cierre de Caja Registrado</h2>
-              <p className="text-xs text-zinc-400">{dateStr} • {timeStr}</p>
+              <p className="text-xs text-zinc-400">{dateStr} • {timeStr} • #{closure.id?.slice(0, 8).toUpperCase()}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10 transition-colors">
+          <button onClick={onClose} className="text-zinc-400 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10 transition-colors cursor-pointer">
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Quick summary chips */}
+        <div className="grid grid-cols-3 gap-2 px-4 pt-4">
+          <div className="bg-black/50 border border-amber-500/20 rounded-xl p-2.5 text-center">
+            <span className="text-[10px] text-zinc-400 block font-bold uppercase">Recaudado</span>
+            <span className="text-sm font-black text-amber-400 font-mono">{formatCLP(closure.total_revenue)}</span>
+          </div>
+          <div className="bg-black/50 border border-white/10 rounded-xl p-2.5 text-center">
+            <span className="text-[10px] text-zinc-400 block font-bold uppercase">Vehículos</span>
+            <span className="text-sm font-black text-white font-mono">{closure.total_vehicles}</span>
+          </div>
+          <div className="bg-black/50 border border-white/10 rounded-xl p-2.5 text-center">
+            <span className="text-[10px] text-zinc-400 block font-bold uppercase">Promedio</span>
+            <span className="text-sm font-black text-emerald-400 font-mono">{formatCLP(closure.avg_fee)}</span>
+          </div>
         </div>
 
         <pre className="flex-1 bg-black/60 border border-white/10 rounded-2xl p-4 text-emerald-400 font-mono text-xs leading-relaxed overflow-auto custom-scrollbar select-text m-4">
           {closure.receipt_text}
         </pre>
 
-        <div className="flex-shrink-0 flex gap-2.5 p-4 border-t border-white/10 bg-black/40">
-          <button onClick={handleDownload} className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 rounded-xl text-xs transition-all">
-            <Download className="w-4 h-4" /> Descargar TXT
+        <div className="flex-shrink-0 flex gap-2 p-4 border-t border-white/10 bg-black/40">
+          <button
+            onClick={handlePrintPDF}
+            className="flex-[1.4] flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
+          >
+            <Printer className="w-4 h-4" /> Exportar a PDF
           </button>
-          <button onClick={handleWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#25D366]/90 text-black font-black py-3 rounded-xl text-xs transition-all shadow-lg shadow-emerald-500/20">
-            <MessageCircle className="w-4 h-4" /> WhatsApp
+          <button onClick={handleDownload} className="flex-1 flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 rounded-xl text-xs transition-all cursor-pointer">
+            <Download className="w-3.5 h-3.5" /> TXT
+          </button>
+          <button onClick={handleWhatsApp} className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#25D366]/90 text-black font-black py-3 rounded-xl text-xs transition-all shadow-lg shadow-emerald-500/20 cursor-pointer">
+            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
           </button>
         </div>
       </div>
@@ -1262,12 +1355,13 @@ function BenefitsTab({
 }
 
 // ─── Main Dashboard Client ────────────────────────────────────────────────────
-export default function DashboardClient({ profile, tariff: initialTariff }: Props) {
+export default function DashboardClient({ profile, tariff: initialTariff, billingInfo }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const orgId = profile.organization_id
   const [tab, setTab] = useState('parking')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [paymentDetailsModalOpen, setPaymentDetailsModalOpen] = useState(false)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [closures, setClosures] = useState<ShiftClosure[]>([])
@@ -1285,7 +1379,11 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   const [searchQuery, setSearchQuery] = useState('')
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
 
-  // Sync benefits configuration from localStorage if available (guarantees permanent persistence)
+  const [askInitialCashOpen, setAskInitialCashOpen] = useState(false)
+  const [initialCashAmount, setInitialCashAmount] = useState('')
+  const [initialCash, setInitialCash] = useState<number | null>(null)
+
+  // Sync benefits, max_fee, and initial_cash from localStorage
   useEffect(() => {
     if (!orgId) return
     try {
@@ -1300,10 +1398,32 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
           frequent_benefit_value: parsed.value !== undefined ? parsed.value : prev.frequent_benefit_value,
         }))
       }
+      const storedMaxFee = localStorage.getItem(`parkcontrol_tariff_max_fee_${orgId}`)
+      if (storedMaxFee) {
+        const val = Number(storedMaxFee)
+        if (!isNaN(val) && val > 0) {
+          setTariff(prev => ({ ...prev, max_fee: val }))
+        }
+      }
+      const storedInitialCash = localStorage.getItem(`parkcontrol_initial_cash_${orgId}`)
+      if (storedInitialCash) {
+        setInitialCash(Number(storedInitialCash))
+      }
     } catch (e) {
-      console.error('Error reading stored benefits config:', e)
+      console.error('Error reading stored configs:', e)
     }
   }, [orgId])
+
+  // Sub-tabs & Views for Finance
+  const [financeSubTab, setFinanceSubTab] = useState<'monthly' | 'calendar' | 'closures'>('monthly')
+  const [financeMonthDate, setFinanceMonthDate] = useState<Date>(new Date())
+  const [financeTxSearch, setFinanceTxSearch] = useState('')
+  const [financeMethodFilter, setFinanceMethodFilter] = useState<'all' | 'efectivo' | 'tarjeta' | 'transferencia'>('all')
+  const [financeClosureFilter, setFinanceClosureFilter] = useState<'all' | 'closed' | 'open'>('all')
+  const [financeClosureSearch, setFinanceClosureSearch] = useState('')
+  const [financeTxPage, setFinanceTxPage] = useState(1)
+  const [paymentUpdatedToast, setPaymentUpdatedToast] = useState<string | null>(null)
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(null)
 
   // Calendar State for Finance
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date())
@@ -1321,24 +1441,43 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
 
   // Load data
   const loadData = useCallback(async () => {
-    const queries: any[] = [
-      supabase.from('vehicles').select('*').eq('organization_id', orgId).order('entry_at', { ascending: true }),
-      supabase.from('transactions').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }),
-      supabase.from('audit_events').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }),
-      supabase.from('shift_closures').select('*').eq('organization_id', orgId).order('closed_at', { ascending: false }),
-    ]
-    if (profile.role === 'admin') {
-      queries.push(
-        supabase.from('profiles').select('*').eq('organization_id', orgId).order('created_at', { ascending: true })
-      )
+    // Helper to retrieve all records seamlessly past Supabase's default 1,000 row ceiling
+    const fetchAllRows = async (table: string, orderCol: string, ascending: boolean = false) => {
+      let all: any[] = []
+      let from = 0
+      const step = 1000
+      while (true) {
+        const { data, error } = await supabase
+          .from(table)
+          .select('*')
+          .eq('organization_id', orgId)
+          .order(orderCol, { ascending })
+          .range(from, from + step - 1)
+
+        if (error || !data || data.length === 0) break
+        all = all.concat(data)
+        if (data.length < step) break
+        from += step
+      }
+      return all
     }
-    const results = await Promise.all(queries)
-    setVehicles(results[0].data || [])
-    setTransactions(results[1].data || [])
-    setAuditEvents(results[2].data || [])
-    setClosures(results[3].data || [])
-    if (profile.role === 'admin' && results[4]) {
-      setUsers(results[4].data || [])
+
+    const [vData, tData, aData, cData, uData] = await Promise.all([
+      supabase.from('vehicles').select('*').eq('organization_id', orgId).order('entry_at', { ascending: true }).then(r => r.data || []),
+      fetchAllRows('transactions', 'created_at', false),
+      fetchAllRows('audit_events', 'created_at', false),
+      fetchAllRows('shift_closures', 'closed_at', false),
+      profile.role === 'admin'
+        ? supabase.from('profiles').select('*').eq('organization_id', orgId).order('created_at', { ascending: true }).then(r => r.data || [])
+        : Promise.resolve([])
+    ])
+
+    setVehicles(vData)
+    setTransactions(tData)
+    setAuditEvents(aData)
+    setClosures(cData)
+    if (profile.role === 'admin') {
+      setUsers(uData)
     }
   }, [orgId, supabase, profile.role])
 
@@ -1360,11 +1499,26 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     router.push('/login')
   }
 
+  const handleSaveInitialCash = (e: React.FormEvent) => {
+    e.preventDefault()
+    const amount = Number(initialCashAmount)
+    if (!isNaN(amount) && amount >= 0) {
+      localStorage.setItem(`parkcontrol_initial_cash_${orgId}`, amount.toString())
+      setInitialCash(amount)
+      setAskInitialCashOpen(false)
+    }
+  }
+
   const activePlateMessage = (plate: string, entryAt?: string) =>
     `La patente ${plate} ya se encuentra activa${entryAt ? ` (ingresó a las ${formatTime(entryAt)})` : ''}. Debe finalizar su estadía antes de volver a ingresarla.`
 
   const addVehicle = async () => {
     if (loadingAdd) return // Evita doble registro por Enter/clic repetido
+    if (initialCash === null) {
+      setAskInitialCashOpen(true)
+      return
+    }
+
     const plate = formatPlate(plateInput)
     if (!plate) { setError('Ingresa una patente.'); return }
     if (plate === 'RZGL43') {
@@ -1401,7 +1555,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         organization_id: orgId, plate, entry_at: new Date().toISOString(), operator_id: profile.id
       })
       if (e) {
-        // 23505 = violación de índice único (si se aplicó supabase-unique-plate.sql)
+        // 23505 = violación del índice único (supabase-unique-plate.sql)
         setError(e.code === '23505' ? activePlateMessage(plate) : 'Error al registrar vehículo.')
       } else {
         setPlateInput('')
@@ -1413,7 +1567,13 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     }
   }
 
-  const openCheckout = (vehicle: Vehicle, elapsed: number, fee: number) => setCheckout({ vehicle, elapsed, fee })
+  const openCheckout = (vehicle: Vehicle, elapsed: number, fee: number) => {
+    if (initialCash === null) {
+      setAskInitialCashOpen(true)
+      return
+    }
+    setCheckout({ vehicle, elapsed, fee })
+  }
 
   const confirmCheckout = async (paymentMethod: string, finalFee: number, reason?: string) => {
     if (!checkout) return
@@ -1497,8 +1657,9 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         type: t.frequent_benefit_type,
         value: t.frequent_benefit_value,
       }))
+      localStorage.setItem(`parkcontrol_tariff_max_fee_${orgId}`, String(t.max_fee || 0))
     } catch (e) {
-      console.error('Error saving benefits to localStorage:', e)
+      console.error('Error saving benefits & max_fee to localStorage:', e)
     }
 
     const updatePayload: any = {
@@ -1507,6 +1668,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       additional_fee: t.additional_fee,
       additional_minutes: t.additional_minutes,
     }
+    if (t.max_fee !== undefined) updatePayload.max_fee = t.max_fee || null
     if (t.frequent_threshold !== undefined) updatePayload.frequent_threshold = t.frequent_threshold
     if (t.frequent_benefit_type !== undefined) updatePayload.frequent_benefit_type = t.frequent_benefit_type
     if (t.frequent_benefit_value !== undefined) updatePayload.frequent_benefit_value = t.frequent_benefit_value
@@ -1533,6 +1695,50 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     setTimeout(() => setTariffSaved(false), 3000)
   }
 
+  // Handle modifying payment method after shift closure or anytime
+  const handleUpdatePaymentMethod = async (tx: Transaction, newMethod: 'efectivo' | 'tarjeta' | 'transferencia') => {
+    if (tx.payment_method === newMethod) return
+    const oldMethod = tx.payment_method || 'efectivo'
+    setUpdatingPaymentId(tx.id)
+
+    // Optimistic UI update
+    setTransactions(prev => prev.map(item => item.id === tx.id ? { ...item, payment_method: newMethod } : item))
+
+    try {
+      const { error: updErr } = await supabase
+        .from('transactions')
+        .update({ payment_method: newMethod })
+        .eq('id', tx.id)
+
+      if (updErr) {
+        setTransactions(prev => prev.map(item => item.id === tx.id ? { ...item, payment_method: oldMethod } : item))
+        alert('Error al modificar método de pago: ' + updErr.message)
+        setUpdatingPaymentId(null)
+        return
+      }
+
+      // Record in audit_events for financial governance
+      await supabase.from('audit_events').insert({
+        organization_id: orgId,
+        event_type: 'fee_modified',
+        plate: tx.plate,
+        original_value: tx.fee,
+        new_value: tx.fee,
+        reason: `Reclasificación método de pago post-cierre: [${oldMethod.toUpperCase()}] ➔ [${newMethod.toUpperCase()}] por ${profile.full_name}`,
+        operator_id: profile.id,
+        closure_id: tx.closure_id || null,
+      })
+
+      setPaymentUpdatedToast(`✓ Patente ${tx.plate}: método actualizado a ${newMethod.toUpperCase()}`)
+      setTimeout(() => setPaymentUpdatedToast(null), 3500)
+    } catch (err: any) {
+      console.error('Error updating payment method:', err)
+      setTransactions(prev => prev.map(item => item.id === tx.id ? { ...item, payment_method: oldMethod } : item))
+    } finally {
+      setUpdatingPaymentId(null)
+    }
+  }
+
   const closeClosure = async () => {
     const activeTx = transactions.filter(t => !t.closure_id)
     if (activeTx.length === 0) {
@@ -1553,11 +1759,21 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     const cardTotal = activeTx.filter(t => t.payment_method === 'tarjeta').reduce((s, t) => s + t.fee, 0)
     const transferTotal = activeTx.filter(t => t.payment_method === 'transferencia').reduce((s, t) => s + t.fee, 0)
 
-    const activeAudit = auditEvents.filter(a => !a.closure_id)
+    // Shift start time: timestamp of previous closure, or earliest activity of current shift
+    const lastClosureTime = closures.length > 0 ? new Date(closures[0].closed_at).getTime() : 0
+    const shiftStartTime = lastClosureTime > 0
+      ? lastClosureTime
+      : (activeTx.length > 0
+          ? Math.min(...activeTx.map(t => new Date(t.entry_at || t.created_at).getTime()))
+          : new Date().setHours(0, 0, 0, 0))
+
+    // Filter audit events strictly of current active shift being closed
+    const activeAudit = auditEvents.filter(a => !a.closure_id && new Date(a.created_at).getTime() >= shiftStartTime)
     const deletedVehicles = activeAudit.filter(a => a.event_type === 'vehicle_deleted')
     const modifiedFees = activeAudit.filter(a => a.event_type === 'fee_modified')
 
-    let receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${activeTx.length}\nTotal Recaudado:  ${formatCLP(totalActive)}\n\nDESGLOSE DE PAGOS:\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avgActive)}\nMayor Cobro:      ${formatCLP(maxActive)}\n`
+    const expectedCash = cashTotal + (initialCash || 0)
+    let receiptText = `=====================================\n          CIERRE DE CAJA\n            ParkControl\n=====================================\nFecha: ${dateStr} | Hora: ${timeStr}\n-------------------------------------\nAutos Procesados: ${activeTx.length}\nTotal Recaudado:  ${formatCLP(totalActive)}\n\nDESGLOSE DE PAGOS:\n- Caja Inicial:   ${formatCLP(initialCash || 0)}\n- Efectivo:       ${formatCLP(cashTotal)}\n- Tarjeta:        ${formatCLP(cardTotal)}\n- Transferencia:  ${formatCLP(transferTotal)}\n\n[ TOTAL EFECTIVO ESPERADO EN CAJA: ${formatCLP(expectedCash)} ]\n\nESTADÍSTICAS:\nMonto Promedio:   ${formatCLP(avgActive)}\nMayor Cobro:      ${formatCLP(maxActive)}\n`
 
     if (activeAudit.length > 0) {
       receiptText += `\n=====================================\n        REGISTROS DE AUDITORÍA\n=====================================\n`
@@ -1606,7 +1822,7 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       return
     }
 
-    // 3. Vincular eventos de auditoría al cierre
+    // 3. Vincular eventos de auditoría del turno actual al cierre
     const activeAuditIds = activeAudit.map(a => a.id)
     if (activeAuditIds.length > 0) {
       const { error: updateAuditErr } = await supabase.from('audit_events')
@@ -1616,6 +1832,20 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         console.error('Error linking audit events to closure:', updateAuditErr)
       }
     }
+
+    // 4. Limpiar cualquier evento huérfano anterior para que no interfiera en turnos posteriores
+    const orphanAuditIds = auditEvents
+      .filter(a => !a.closure_id && new Date(a.created_at).getTime() < shiftStartTime)
+      .map(a => a.id)
+    if (orphanAuditIds.length > 0) {
+      const targetClosureId = closures[0]?.id || closure.id
+      await supabase.from('audit_events')
+        .update({ closure_id: targetClosureId })
+        .in('id', orphanAuditIds)
+    }
+    // Reset initial cash for the next shift
+    localStorage.removeItem(`parkcontrol_initial_cash_${orgId}`)
+    setInitialCash(null)
 
     setClosureOpen(false)
     await loadData()
@@ -1698,6 +1928,50 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
   })
   const peakHour = hourData.reduce((a, b) => a.count > b.count ? a : b)
   const peakDay = dayData.reduce((a, b) => a.count > b.count ? a : b)
+
+  // ── Monthly Revenue Data for Macro-Financial Control (Recaudación Mensual) ──
+  const monthlyRevenueData = useMemo(() => {
+    const monthMap: Record<string, { label: string; revenue: number; count: number; sortKey: number }> = {}
+
+    // Pre-populate last 6 months so chart has immediate contextual structure
+    const today = new Date()
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const rawLabel = d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' })
+      const cleanLabel = rawLabel.replace('.', '')
+      const capitalized = cleanLabel.charAt(0).toUpperCase() + cleanLabel.slice(1)
+      monthMap[key] = {
+        label: capitalized,
+        revenue: 0,
+        count: 0,
+        sortKey: d.getTime()
+      }
+    }
+
+    // Accumulate all transactions
+    transactions.forEach(t => {
+      const dateVal = t.exit_at || t.created_at || t.entry_at
+      if (!dateVal) return
+      const d = new Date(dateVal)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!monthMap[key]) {
+        const rawLabel = d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' })
+        const cleanLabel = rawLabel.replace('.', '')
+        const capitalized = cleanLabel.charAt(0).toUpperCase() + cleanLabel.slice(1)
+        monthMap[key] = {
+          label: capitalized,
+          revenue: 0,
+          count: 0,
+          sortKey: new Date(d.getFullYear(), d.getMonth(), 1).getTime()
+        }
+      }
+      monthMap[key].revenue += t.fee
+      monthMap[key].count++
+    })
+
+    return Object.values(monthMap).sort((a, b) => a.sortKey - b.sortKey)
+  }, [transactions])
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number }[]; label?: string }) => {
     if (!active || !payload?.length) return null
@@ -1805,13 +2079,171 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     ] : []),
   ]
 
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col md:flex-row relative overflow-x-hidden">
-      {/* Ambient background lighting */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-sky-500/5 rounded-full blur-3xl" />
+  // ─── PANTALLA DE BLOQUEO POR MOROSIDAD (SUBSCRIPTION LOCKED SCREEN) ───
+  if (billingInfo?.isBlocked && !profile.is_super_admin) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
+        {/* Ambient background light */}
+        <div className="fixed inset-0 pointer-events-none">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-red-600/15 rounded-full blur-3xl" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-lg bg-zinc-950/90 border border-red-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-red-950/50 backdrop-blur-xl flex flex-col gap-6 animate-scale-up">
+          {/* Header Icon & Title */}
+          <div className="flex flex-col items-center text-center gap-3">
+            <div className="w-16 h-16 rounded-3xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-3xl shadow-lg shadow-red-500/20">
+              🔒
+            </div>
+            <div>
+              <span className="text-[11px] font-black uppercase tracking-wider text-red-400 bg-red-500/10 border border-red-500/30 px-3 py-1 rounded-full">
+                Servicio Suspendido por Facturación
+              </span>
+              <h1 className="text-xl sm:text-2xl font-black text-white mt-2">
+                {profile.org_name || 'Tu Estacionamiento'}
+              </h1>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed max-w-md">
+              El periodo de suscripción ha expirado y se ha cumplido el plazo de gracia de cortesía. Para reactivar el ingreso y cobro de vehículos, regulariza el pago mensual del servicio.
+            </p>
+          </div>
+
+          {/* Cloud Data Safe Banner */}
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3.5 flex items-center gap-3 text-xs text-emerald-300">
+            <span className="text-lg">🛡️</span>
+            <span>Tus datos, historial de tickets y vehículos registrados están resguardados y 100% seguros en la nube.</span>
+          </div>
+
+          {/* Bank Transfer Details Box */}
+          <div className="bg-black/60 border border-white/10 rounded-2xl p-4 flex flex-col gap-3 text-xs">
+            <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
+              🏦 Datos para Transferencia Bancaria
+            </span>
+            <div className="grid grid-cols-2 gap-2 text-zinc-300">
+              <div>
+                <span className="text-[10px] text-zinc-500 block">Banco</span>
+                <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.bankName}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 block">Tipo de Cuenta</span>
+                <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.accountType}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 block">N° de Cuenta</span>
+                <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.accountNumber}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 block">RUT</span>
+                <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.rut}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-zinc-500 block">Titular</span>
+                <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.holderName}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-zinc-500 block">Email para comprobante</span>
+                <span className="font-mono font-bold text-amber-400">{BANK_TRANSFER_DETAILS.email}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-col gap-2.5">
+            <a
+              href={`https://wa.me/${BANK_TRANSFER_DETAILS.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                `Hola, te escribo desde "${profile.org_name}" para enviar el comprobante de reactivación de ParkControl SaaS.`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Enviar Comprobante por WhatsApp</span>
+            </a>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white font-bold text-xs transition-all cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Cerrar Sesión</span>
+            </button>
+          </div>
+        </div>
       </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col relative overflow-x-hidden">
+      {/* ── SUPER ADMIN SUPPORT MODE FLOATING BANNER ── */}
+      {profile.is_support_mode && (
+        <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-black px-4 py-3 font-bold flex items-center justify-between shadow-2xl z-50 sticky top-0 border-b border-black/20">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🛠️</span>
+            <div>
+              <span className="text-xs sm:text-sm font-black uppercase tracking-wider block">
+                MODO SOPORTE TÉCNICO ACTIVO
+              </span>
+              <span className="text-[11px] font-semibold text-black/85 block">
+                Estás visualizando y operando el estacionamiento: <strong>"{profile.org_name}"</strong>
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              await exitSupportModeAction()
+              router.push('/superadmin')
+            }}
+            className="flex items-center gap-1.5 bg-black hover:bg-zinc-900 text-amber-400 hover:text-amber-300 px-3.5 py-2 rounded-xl text-xs font-black shadow-lg transition-all active:scale-95 cursor-pointer"
+          >
+            <span>← Salir a Consola de Dueño</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── BILLING GRACE PERIOD WARNING BANNER (PAST DUE) ── */}
+      {billingInfo?.status === 'past_due' && !profile.is_support_mode && (
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 text-white px-4 py-2.5 font-bold flex items-center justify-between shadow-lg z-40 sticky top-0 border-b border-black/20 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 animate-pulse text-amber-200" />
+            <span>
+              <strong>Aviso de Facturación:</strong> Tu suscripción está vencida. Cuentas con <strong>{billingInfo.graceDaysRemaining} día{billingInfo.graceDaysRemaining !== 1 ? 's' : ''}</strong> de gracia antes de la suspensión del servicio.
+            </span>
+          </div>
+          <button
+            onClick={() => setPaymentDetailsModalOpen(true)}
+            className="bg-black/60 hover:bg-black text-amber-300 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer flex-shrink-0 ml-3"
+          >
+            <span>Ver Datos de Pago</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── BILLING EXPIRING SOON BANNER ── */}
+      {billingInfo?.status === 'expiring_soon' && !profile.is_support_mode && (
+        <div className="bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border-b border-amber-500/30 text-amber-300 px-4 py-2 flex items-center justify-between z-40 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">🔔</span>
+            <span>
+              Tu suscripción vence en <strong>{billingInfo.daysRemaining} día{billingInfo.daysRemaining !== 1 ? 's' : ''}</strong> ({billingInfo.dueDateFormatted}).
+            </span>
+          </div>
+          <button
+            onClick={() => setPaymentDetailsModalOpen(true)}
+            className="bg-amber-400 hover:bg-amber-300 text-black px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex-shrink-0 ml-3"
+          >
+            Ver Datos de Pago
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row flex-1 relative">
+        {/* Ambient background lighting */}
+        <div className="fixed inset-0 pointer-events-none z-0">
+          <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-sky-500/5 rounded-full blur-3xl" />
+        </div>
 
       {/* Mobile Top Header (< 768px) */}
       <header className="md:hidden sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
@@ -2273,6 +2705,82 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                 </ResponsiveContainer>
               </div>
             </div>
+
+            {/* Gráfico de Recaudación Mensual Consolidada (Control Total de Ingresos) */}
+            <div className="glass-card rounded-2xl p-5 sm:p-6 border border-emerald-500/25 bg-gradient-to-b from-zinc-900/90 to-zinc-950/90 shadow-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-lg shadow-md shadow-emerald-500/10">
+                    💰
+                  </div>
+                  <div>
+                    <h4 className="font-black text-white text-base sm:text-lg flex items-center gap-2">
+                      Recaudación Mensual Consolidada
+                    </h4>
+                    <p className="text-xs text-zinc-400">
+                      Control total histórico y comparativa del monto recaudado mes a mes
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 bg-black/50 px-3.5 py-2 rounded-xl border border-white/5">
+                  <span className="text-[11px] font-bold text-zinc-400">Total Histórico:</span>
+                  <span className="text-sm sm:text-base font-black text-emerald-400 font-mono">
+                    {formatCLP(monthlyRevenueData.reduce((s, m) => s + m.revenue, 0))}
+                  </span>
+                </div>
+              </div>
+
+              <div className="h-64 sm:h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyRevenueData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
+                    <defs>
+                      <linearGradient id="colorMonthlyRev" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.95} />
+                        <stop offset="100%" stopColor="#059669" stopOpacity={0.3} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: '#a1a1aa', fontSize: 11, fontWeight: 600 }}
+                      tickLine={false}
+                      axisLine={{ stroke: '#3f3f46' }}
+                    />
+                    <YAxis
+                      tick={{ fill: '#71717a', fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={v => `$${(v / 1000).toLocaleString('es-CL')}k`}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null
+                        const item = payload[0].payload
+                        return (
+                          <div className="bg-zinc-900/95 border border-emerald-500/30 p-3.5 rounded-xl text-xs shadow-2xl backdrop-blur-md">
+                            <p className="font-black text-emerald-400 text-sm mb-1.5">{item.label}</p>
+                            <p className="text-white font-mono font-black text-base">
+                              {formatCLP(item.revenue)}
+                            </p>
+                            <p className="text-zinc-400 mt-1 flex items-center gap-1.5 font-sans">
+                              <span>🚗</span> {item.count} vehículo{item.count !== 1 ? 's' : ''} registrado{item.count !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        )
+                      }}
+                      cursor={{ fill: 'rgba(16, 185, 129, 0.06)' }}
+                    />
+                    <Bar
+                      dataKey="revenue"
+                      name="Recaudación"
+                      fill="url(#colorMonthlyRev)"
+                      radius={[6, 6, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2379,8 +2887,748 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                 </div>
               </div>
 
-              {/* ── INTERACTIVE CALENDAR CARD ── */}
-              <div className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-5 border border-white/10 shadow-2xl bg-zinc-900/80">
+              {/* Sub-navigation tabs within Finance - Large, touch-friendly, mobile-first */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-2 bg-zinc-900/90 border border-white/10 rounded-2xl w-full shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => setFinanceSubTab('monthly')}
+                  className={`flex items-center justify-center gap-3 px-5 py-4 rounded-xl text-sm sm:text-base font-black transition-all cursor-pointer ${
+                    financeSubTab === 'monthly'
+                      ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-300'
+                      : 'bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/5'
+                  }`}
+                >
+                  <BarChart3 className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-center">Resumen Mensual & Control</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFinanceSubTab('closures')}
+                  className={`flex items-center justify-center gap-3 px-5 py-4 rounded-xl text-sm sm:text-base font-black transition-all cursor-pointer ${
+                    financeSubTab === 'closures'
+                      ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-300'
+                      : 'bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/5'
+                  }`}
+                >
+                  <FileText className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-center">Historial de Arqueos ({closures.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFinanceSubTab('calendar')}
+                  className={`flex items-center justify-center gap-3 px-5 py-4 rounded-xl text-sm sm:text-base font-black transition-all cursor-pointer ${
+                    financeSubTab === 'calendar'
+                      ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-300'
+                      : 'bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/5'
+                  }`}
+                >
+                  <CalendarDays className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-center">Calendario y Detalle Diario</span>
+                </button>
+              </div>
+
+              {/* ── 1. MONTHLY OVERVIEW & PAYMENT METHOD CONTROL ── */}
+              {financeSubTab === 'monthly' && (() => {
+                const mYear = financeMonthDate.getFullYear()
+                const mMonth = financeMonthDate.getMonth()
+                const mTitle = financeMonthDate.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+                const capitalizedMTitle = mTitle.charAt(0).toUpperCase() + mTitle.slice(1)
+
+                const prevFinMonth = () => {
+                  setFinanceMonthDate(new Date(mYear, mMonth - 1, 1))
+                  setFinanceTxPage(1)
+                }
+                const nextFinMonth = () => {
+                  setFinanceMonthDate(new Date(mYear, mMonth + 1, 1))
+                  setFinanceTxPage(1)
+                }
+                const gotoCurrentFinMonth = () => {
+                  setFinanceMonthDate(new Date())
+                  setFinanceTxPage(1)
+                }
+
+                // Month's transactions
+                const mTransactions = transactions.filter(t => {
+                  const d = new Date(t.exit_at || t.created_at)
+                  return d.getFullYear() === mYear && d.getMonth() === mMonth
+                })
+
+                const mRevenue = mTransactions.reduce((acc, t) => acc + t.fee, 0)
+                const mVehicles = mTransactions.length
+                const mAvgFee = mVehicles > 0 ? Math.round(mRevenue / mVehicles) : 0
+
+                // Methods breakdown
+                const cashList = mTransactions.filter(t => (t.payment_method || 'efectivo') === 'efectivo')
+                const cashVal = cashList.reduce((acc, t) => acc + t.fee, 0)
+                const cashCnt = cashList.length
+                const cashP = mRevenue > 0 ? Math.round((cashVal / mRevenue) * 100) : 0
+
+                const cardList = mTransactions.filter(t => t.payment_method === 'tarjeta')
+                const cardVal = cardList.reduce((acc, t) => acc + t.fee, 0)
+                const cardCnt = cardList.length
+                const cardP = mRevenue > 0 ? Math.round((cardVal / mRevenue) * 100) : 0
+
+                const transferList = mTransactions.filter(t => t.payment_method === 'transferencia')
+                const transferVal = transferList.reduce((acc, t) => acc + t.fee, 0)
+                const transferCnt = transferList.length
+                const transferP = mRevenue > 0 ? Math.round((transferVal / mRevenue) * 100) : 0
+
+                // Month's closures
+                const mClosures = closures.filter(c => {
+                  const d = new Date(c.closed_at)
+                  return d.getFullYear() === mYear && d.getMonth() === mMonth
+                })
+
+                // Filtered transactions for the control table
+                const filteredTx = mTransactions.filter(t => {
+                  if (financeTxSearch.trim()) {
+                    const q = financeTxSearch.trim().toUpperCase()
+                    if (!t.plate.toUpperCase().includes(q)) return false
+                  }
+                  if (financeMethodFilter !== 'all') {
+                    const m = t.payment_method || 'efectivo'
+                    if (m !== financeMethodFilter) return false
+                  }
+                  if (financeClosureFilter === 'closed' && !t.closure_id) return false
+                  if (financeClosureFilter === 'open' && t.closure_id) return false
+                  return true
+                })
+
+                // Paginación: 30 detalles por pantalla / hojas
+                const PAGE_SIZE = 30
+                const totalPages = Math.max(1, Math.ceil(filteredTx.length / PAGE_SIZE))
+                const currentPage = Math.min(Math.max(1, financeTxPage), totalPages)
+                const paginatedTx = filteredTx.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+                return (
+                  <div className="flex flex-col gap-6 animate-fade-in">
+                    {/* Month Navigator Header Card */}
+                    <div className="glass-card rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-white/10 shadow-xl bg-zinc-900/80">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-amber-400 font-bold">
+                          <BarChart3 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400 block">
+                            Periodo Mensual
+                          </span>
+                          <h4 className="font-black text-white text-lg sm:text-xl">
+                            {capitalizedMTitle}
+                          </h4>
+                        </div>
+                      </div>
+
+                      {/* Month Controls */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={prevFinMonth}
+                          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-all cursor-pointer"
+                          title="Mes anterior"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={gotoCurrentFinMonth}
+                          className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Mes Actual
+                        </button>
+                        <button
+                          onClick={nextFinMonth}
+                          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-all cursor-pointer"
+                          title="Mes siguiente"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 4 KPI Cards for the Month */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="glass-card rounded-2xl p-5 border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-zinc-900/90 to-zinc-900/90 flex flex-col justify-between gap-2 shadow-lg">
+                        <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <DollarSign className="w-4 h-4" /> Recaudación Total
+                        </span>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-amber-400 font-mono tracking-tight block">
+                            {formatCLP(mRevenue)}
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                            {mVehicles} cobro{mVehicles !== 1 ? 's' : ''} en el mes
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="glass-card rounded-2xl p-5 border border-white/10 bg-zinc-900/80 flex flex-col justify-between gap-2 shadow-lg">
+                        <span className="text-[10px] font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <CarFront className="w-4 h-4" /> Autos Procesados
+                        </span>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight block">
+                            {mVehicles}
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                            Vehículos registrados
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="glass-card rounded-2xl p-5 border border-white/10 bg-zinc-900/80 flex flex-col justify-between gap-2 shadow-lg">
+                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <TrendingUp className="w-4 h-4" /> Cobro Promedio
+                        </span>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono tracking-tight block">
+                            {formatCLP(mAvgFee)}
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                            Por vehículo procesado
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="glass-card rounded-2xl p-5 border border-white/10 bg-zinc-900/80 flex flex-col justify-between gap-2 shadow-lg">
+                        <span className="text-[10px] font-black text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Lock className="w-4 h-4" /> Arqueos Realizados
+                        </span>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-orange-400 font-mono tracking-tight block">
+                            {mClosures.length}
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                            Cierres de turno guardados
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Desglose de Valores Reunidos por Método de Pago */}
+                    <div className="glass-card rounded-3xl p-5 sm:p-7 border border-white/10 shadow-2xl bg-zinc-900/90 flex flex-col gap-6">
+                      <div className="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-4">
+                        <div>
+                          <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400 block">
+                            Valores Reunidos
+                          </span>
+                          <h4 className="text-base sm:text-lg font-black text-white">
+                            Desglose Consolidado por Método de Pago
+                          </h4>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-zinc-400 bg-black/40 px-3 py-1.5 rounded-xl border border-white/5">
+                          Total Mes: {formatCLP(mRevenue)}
+                        </span>
+                      </div>
+
+                      {/* 3 Metric Cards for Payments */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Efectivo */}
+                        <div className="bg-gradient-to-b from-emerald-500/10 to-black/40 border border-emerald-500/30 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-inner">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                              <span>💵</span> Efectivo
+                            </span>
+                            <span className="text-xs font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full font-mono">
+                              {cashP}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-2xl font-black text-emerald-400 font-mono tracking-tight block">
+                              {formatCLP(cashVal)}
+                            </span>
+                            <span className="text-xs text-zinc-400 font-bold block mt-1">
+                              {cashCnt} auto{cashCnt !== 1 ? 's' : ''} ({cashP}% del total)
+                            </span>
+                          </div>
+                          <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden border border-white/5">
+                            <div className="bg-emerald-400 h-full rounded-full transition-all duration-500" style={{ width: `${cashP}%` }} />
+                          </div>
+                        </div>
+
+                        {/* Tarjeta */}
+                        <div className="bg-gradient-to-b from-blue-500/10 to-black/40 border border-blue-500/30 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-inner">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                              <span>💳</span> Tarjeta (POS)
+                            </span>
+                            <span className="text-xs font-black text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded-full font-mono">
+                              {cardP}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-2xl font-black text-blue-400 font-mono tracking-tight block">
+                              {formatCLP(cardVal)}
+                            </span>
+                            <span className="text-xs text-zinc-400 font-bold block mt-1">
+                              {cardCnt} auto{cardCnt !== 1 ? 's' : ''} ({cardP}% del total)
+                            </span>
+                          </div>
+                          <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden border border-white/5">
+                            <div className="bg-blue-400 h-full rounded-full transition-all duration-500" style={{ width: `${cardP}%` }} />
+                          </div>
+                        </div>
+
+                        {/* Transferencia */}
+                        <div className="bg-gradient-to-b from-purple-500/10 to-black/40 border border-purple-500/30 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-inner">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                              <span>📱</span> Transferencia
+                            </span>
+                            <span className="text-xs font-black text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full font-mono">
+                              {transferP}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-2xl font-black text-purple-400 font-mono tracking-tight block">
+                              {formatCLP(transferVal)}
+                            </span>
+                            <span className="text-xs text-zinc-400 font-bold block mt-1">
+                              {transferCnt} auto{transferCnt !== 1 ? 's' : ''} ({transferP}% del total)
+                            </span>
+                          </div>
+                          <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden border border-white/5">
+                            <div className="bg-purple-400 h-full rounded-full transition-all duration-500" style={{ width: `${transferP}%` }} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Unified Proportion Bar */}
+                      {mRevenue > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400">
+                            <span>Distribución Visual de Ingresos</span>
+                            <span className="font-mono">{mVehicles} transacciones analizadas</span>
+                          </div>
+                          <div className="w-full h-3.5 bg-black/60 rounded-full overflow-hidden flex border border-white/10 p-0.5 gap-0.5">
+                            {cashP > 0 && (
+                              <div
+                                className="bg-emerald-400 rounded-full h-full transition-all"
+                                style={{ width: `${cashP}%` }}
+                                title={`Efectivo: ${cashP}% (${formatCLP(cashVal)})`}
+                              />
+                            )}
+                            {cardP > 0 && (
+                              <div
+                                className="bg-blue-400 rounded-full h-full transition-all"
+                                style={{ width: `${cardP}%` }}
+                                title={`Tarjeta: ${cardP}% (${formatCLP(cardVal)})`}
+                              />
+                            )}
+                            {transferP > 0 && (
+                              <div
+                                className="bg-purple-400 rounded-full h-full transition-all"
+                                style={{ width: `${transferP}%` }}
+                                title={`Transferencia: ${transferP}% (${formatCLP(transferVal)})`}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── CONTROL DE FINANZAS & MODIFICACIÓN DE MÉTODO DE PAGO ── */}
+                    <div className="glass-card rounded-3xl p-5 sm:p-7 border border-white/10 shadow-2xl bg-zinc-900/90 flex flex-col gap-6">
+                      {/* Section Title & Info Banner */}
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 font-bold text-lg">
+                              ⚙️
+                            </div>
+                            <div>
+                              <h4 className="text-base sm:text-lg font-black text-white">
+                                Control de Transacciones y Modificación de Pago
+                              </h4>
+                              <p className="text-xs text-zinc-400">
+                                Modifica y concilia el método de pago incluso después del cierre de caja para tener control financiero total.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Informative Guidance Banner */}
+                        <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2.5">
+                          <span className="text-lg flex-shrink-0">💡</span>
+                          <div className="leading-relaxed">
+                            <strong>Ajuste Contable Post-Cierre:</strong> Si un cliente pagó con tarjeta o transferencia pero por error se registró como efectivo (o viceversa), puedes corregirlo en el selector de cada fila. El cambio se registrará en la auditoría con tu nombre y corregirá los valores consolidados inmediatamente.
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Filters and Search Bar */}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-black/40 p-3 rounded-2xl border border-white/5">
+                        {/* Search input */}
+                        <div className="relative flex-1 max-w-xs">
+                          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                          <input
+                            type="text"
+                            placeholder="Buscar por patente..."
+                            value={financeTxSearch}
+                            onChange={(e) => {
+                              setFinanceTxSearch(e.target.value)
+                              setFinanceTxPage(1)
+                            }}
+                            className="w-full bg-black/50 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 font-bold focus:outline-none focus:border-amber-400 transition-all font-mono"
+                          />
+                        </div>
+
+                        {/* Filter pills: Method */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-black text-zinc-500 uppercase mr-1">Método:</span>
+                          {(['all', 'efectivo', 'tarjeta', 'transferencia'] as const).map(m => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => {
+                                setFinanceMethodFilter(m)
+                                setFinanceTxPage(1)
+                              }}
+                              className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
+                                financeMethodFilter === m
+                                  ? 'bg-amber-400 text-black border-amber-300 font-black'
+                                  : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
+                              }`}
+                            >
+                              {m === 'all' ? 'Todos' : m === 'efectivo' ? '💵 Efectivo' : m === 'tarjeta' ? '💳 Tarjeta' : '📱 Transfer'}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Filter pills: Closure */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-black text-zinc-500 uppercase mr-1">Estado:</span>
+                          {(['all', 'closed', 'open'] as const).map(st => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => {
+                                setFinanceClosureFilter(st)
+                                setFinanceTxPage(1)
+                              }}
+                              className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
+                                financeClosureFilter === st
+                                  ? 'bg-amber-400 text-black border-amber-300 font-black'
+                                  : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
+                              }`}
+                            >
+                              {st === 'all' ? 'Todos' : st === 'closed' ? '🔒 Arqueados' : '🟢 Turno Activo'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Interactive Transactions Table */}
+                      <div className="glass-card rounded-2xl overflow-hidden border border-white/10 bg-black/40">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left">
+                            <thead>
+                              <tr className="bg-black/60 border-b border-white/10">
+                                {['Patente', 'Fecha / Salida', 'Duración', 'Cobro', 'Estado de Turno', 'Método de Pago (Modificable)'].map(h => (
+                                  <th key={h} className="px-4 py-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {paginatedTx.length > 0 ? (
+                                paginatedTx.map(t => {
+                                  const isUpdating = updatingPaymentId === t.id
+                                  const currentMethod = t.payment_method || 'efectivo'
+
+                                  return (
+                                    <tr key={t.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                      <td className="px-4 py-3 font-mono font-black text-white text-sm">
+                                        <span className="plate-badge px-2.5 py-1 rounded-lg border border-white/15">
+                                          {t.plate}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-3 text-xs text-zinc-300 font-mono">
+                                        <div>{formatDate(t.exit_at || t.created_at)}</div>
+                                        <div className="text-[10px] text-zinc-500">{formatTime(t.exit_at || t.created_at)}</div>
+                                      </td>
+                                      <td className="px-4 py-3 text-xs text-zinc-400 font-mono">
+                                        {formatElapsed(new Date(t.exit_at || t.created_at).getTime() - new Date(t.entry_at).getTime())}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm font-black text-amber-400 font-mono">
+                                        {formatCLP(t.fee)}
+                                      </td>
+                                      <td className="px-4 py-3 text-xs">
+                                        {t.closure_id ? (
+                                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                                            <span>🔒</span> Arqueado #{t.closure_id.slice(0, 6).toUpperCase()}
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                                            <span>🟢</span> Turno Activo
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2">
+                                          <select
+                                            value={currentMethod}
+                                            disabled={isUpdating}
+                                            onChange={(e) => handleUpdatePaymentMethod(t, e.target.value as any)}
+                                            className={`bg-zinc-900 border text-xs font-black rounded-xl px-3 py-1.5 focus:outline-none transition-all cursor-pointer ${
+                                              currentMethod === 'tarjeta'
+                                                ? 'text-blue-400 border-blue-500/40 bg-blue-500/10'
+                                                : currentMethod === 'transferencia'
+                                                  ? 'text-purple-400 border-purple-500/40 bg-purple-500/10'
+                                                  : 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10'
+                                            } ${isUpdating ? 'opacity-50 pointer-events-none' : 'hover:border-amber-400'}`}
+                                          >
+                                            <option value="efectivo" className="bg-zinc-900 text-emerald-400">💵 Efectivo</option>
+                                            <option value="tarjeta" className="bg-zinc-900 text-blue-400">💳 Tarjeta (POS)</option>
+                                            <option value="transferencia" className="bg-zinc-900 text-purple-400">📱 Transferencia</option>
+                                          </select>
+
+                                          {isUpdating && (
+                                            <span className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )
+                                })
+                              ) : (
+                                <tr>
+                                  <td colSpan={6} className="px-4 py-12 text-center text-zinc-500 text-xs font-semibold">
+                                    No se encontraron transacciones en este mes con los filtros seleccionados.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Barra de Paginación por Hojas (30 detalles por pantalla) */}
+                        {filteredTx.length > 0 && (
+                          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-4 bg-black/60 border-t border-white/10 text-xs">
+                            <div className="text-zinc-400 font-medium">
+                              Mostrando <span className="text-white font-black font-mono">{(currentPage - 1) * PAGE_SIZE + 1}</span> a{' '}
+                              <span className="text-white font-black font-mono">{Math.min(currentPage * PAGE_SIZE, filteredTx.length)}</span> de{' '}
+                              <span className="text-amber-400 font-black font-mono">{filteredTx.length}</span> detalles{' '}
+                              <span className="text-zinc-500 ml-1">({PAGE_SIZE} por hoja)</span>
+                            </div>
+
+                            {totalPages > 1 && (
+                              <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setFinanceTxPage(p => Math.max(1, p - 1))}
+                                  disabled={currentPage === 1}
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none text-white font-bold transition-all cursor-pointer text-xs"
+                                >
+                                  <ChevronLeft className="w-3.5 h-3.5" />
+                                  <span>Anterior</span>
+                                </button>
+
+                                <div className="flex items-center gap-1">
+                                  {Array.from({ length: totalPages }, (_, idx) => idx + 1)
+                                    .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                                    .map((p, index, array) => {
+                                      const prevP = array[index - 1]
+                                      const hasGap = prevP && p - prevP > 1
+
+                                      return (
+                                        <div key={p} className="flex items-center gap-1">
+                                          {hasGap && <span className="text-zinc-600 px-1 font-mono">…</span>}
+                                          <button
+                                            type="button"
+                                            onClick={() => setFinanceTxPage(p)}
+                                            className={`w-7 h-7 rounded-xl font-mono text-xs font-black transition-all cursor-pointer ${
+                                              p === currentPage
+                                                ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20'
+                                                : 'bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10'
+                                            }`}
+                                          >
+                                            {p}
+                                          </button>
+                                        </div>
+                                      )
+                                    })}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setFinanceTxPage(p => Math.min(totalPages, p + 1))}
+                                  disabled={currentPage === totalPages}
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none text-white font-bold transition-all cursor-pointer text-xs"
+                                >
+                                  <span>Siguiente</span>
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* ── 2. SHIFT CLOSURES HISTORY & PDF EXPORT ── */}
+              {financeSubTab === 'closures' && (() => {
+                const filteredClosures = closures.filter(c => {
+                  if (!financeClosureSearch.trim()) return true
+                  const q = financeClosureSearch.trim().toLowerCase()
+                  const dateFmt = formatDate(c.closed_at).toLowerCase()
+                  const folio = (c.id || '').toLowerCase()
+                  return dateFmt.includes(q) || folio.includes(q) || c.receipt_text.toLowerCase().includes(q)
+                })
+
+                return (
+                  <div className="flex flex-col gap-6 animate-fade-in">
+                    {/* Header Card */}
+                    <div className="glass-card rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-white/10 shadow-xl bg-zinc-900/80">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-amber-400 font-bold">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-white text-lg">
+                            Historial Oficial de Arqueos ({closures.length})
+                          </h4>
+                          <p className="text-xs text-zinc-400">
+                            Todos los cierres de turno quedan guardados permanentemente. Puedes revisarlos y exportarlos a PDF oficial en cualquier momento.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Search bar */}
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por fecha, folio o texto..."
+                          value={financeClosureSearch}
+                          onChange={(e) => setFinanceClosureSearch(e.target.value)}
+                          className="w-full bg-black/50 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 font-bold focus:outline-none focus:border-amber-400 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Closures Grid */}
+                    {filteredClosures.length > 0 ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {filteredClosures.map(c => {
+                          const dateStr = formatDate(c.closed_at)
+                          const timeStr = formatTime(c.closed_at)
+                          const folio = c.id ? c.id.slice(0, 8).toUpperCase() : 'N/A'
+
+                          // Extract breakdown
+                          const cashMatch = c.receipt_text.match(/Efectivo:\s*([^\n\r]+)/i)
+                          const cardMatch = c.receipt_text.match(/Tarjeta:\s*([^\n\r]+)/i)
+                          const transferMatch = c.receipt_text.match(/Transferencia:\s*([^\n\r]+)/i)
+
+                          return (
+                            <div
+                              key={c.id}
+                              className="glass-card rounded-2xl p-5 border border-emerald-500/25 hover:border-emerald-500/40 bg-zinc-900/90 flex flex-col justify-between gap-4 shadow-xl transition-all duration-200"
+                            >
+                              {/* Top Bar: Folio & Date */}
+                              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">🔒</span>
+                                  <div>
+                                    <span className="text-xs font-mono font-black text-amber-400 block">
+                                      FOLIO #{folio}
+                                    </span>
+                                    <span className="text-[11px] text-zinc-400 block font-mono">
+                                      {dateStr} a las {timeStr}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="text-right">
+                                  <span className="text-[10px] font-extrabold uppercase text-zinc-400 block">
+                                    Total Arqueado
+                                  </span>
+                                  <span className="text-lg sm:text-xl font-black text-emerald-400 font-mono">
+                                    {formatCLP(c.total_revenue)}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* 3 Metric Pills */}
+                              <div className="grid grid-cols-3 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 text-center">
+                                <div>
+                                  <span className="text-[9px] font-bold text-zinc-400 uppercase block">Vehículos</span>
+                                  <span className="text-sm font-black text-white font-mono">{c.total_vehicles}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[9px] font-bold text-zinc-400 uppercase block">Promedio</span>
+                                  <span className="text-sm font-black text-amber-400 font-mono">{formatCLP(c.avg_fee)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[9px] font-bold text-zinc-400 uppercase block">Mayor Cobro</span>
+                                  <span className="text-sm font-black text-sky-400 font-mono">{formatCLP(c.max_fee)}</span>
+                                </div>
+                              </div>
+
+                              {/* Breakdown Badges */}
+                              <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                                {cashMatch && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono font-bold">
+                                    💵 {cashMatch[1].trim()}
+                                  </span>
+                                )}
+                                {cardMatch && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 font-mono font-bold">
+                                    💳 {cardMatch[1].trim()}
+                                  </span>
+                                )}
+                                {transferMatch && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 font-mono font-bold">
+                                    📱 {transferMatch[1].trim()}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Actions Bar */}
+                              <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                                <button
+                                  type="button"
+                                  onClick={() => printClosurePDF(c, profile.org_name)}
+                                  className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black py-2.5 rounded-xl text-xs transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  <span>Exportar PDF</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingClosureReceipt(c)}
+                                  className="flex-1 flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>Ver Recibo</span>
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="glass-card rounded-2xl p-12 text-center border border-white/10 flex flex-col items-center justify-center">
+                        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl mb-3">
+                          🔒
+                        </div>
+                        <h4 className="text-base font-black text-white mb-1">Sin arqueos encontrados</h4>
+                        <p className="text-xs text-zinc-400 max-w-sm">
+                          {financeClosureSearch ? `No se encontraron cierres con el término "${financeClosureSearch}".` : 'Aún no se han generado cierres de caja en este estacionamiento.'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* ── 3. INTERACTIVE CALENDAR & DAILY DRILL-DOWN ── */}
+              {financeSubTab === 'calendar' && (
+                <>
+                  {/* ── INTERACTIVE CALENDAR CARD ── */}
+                  <div className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-5 border border-white/10 shadow-2xl bg-zinc-900/80">
                 {/* Calendar Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
                   <div className="flex items-center gap-3">
@@ -2746,9 +3994,11 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                   </div>
                 </div>
               )}
-            </div>
-          )
-        })()}
+            </>
+          )}
+        </div>
+      )
+    })()}
 
         {/* ── SETTINGS TAB (admin only) ── */}
         {tab === 'settings' && profile.role === 'admin' && (
@@ -2779,6 +4029,49 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                   </div>
                 ))}
               </div>
+
+              {/* Tarifa Máxima (Tope por Estadía / Diario) */}
+              <div className="flex flex-col gap-2.5 bg-gradient-to-b from-amber-500/10 to-transparent border border-amber-500/25 rounded-2xl p-4.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🛡️</span> Tarifa Máxima (Tope por Estadía / Día)
+                  </label>
+                  <span className="text-[11px] font-bold text-zinc-400">0 = Sin límite</span>
+                </div>
+                <p className="text-xs text-zinc-300 leading-relaxed">
+                  Fija un importe tope para el cobro. Si el tiempo transcurrido genera un valor mayor, el cobro se congelará automáticamente en este límite máximo.
+                </p>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-zinc-400 text-sm font-bold">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={500}
+                    placeholder="0 (Sin tope máximo)"
+                    value={tariff.max_fee || ''}
+                    onChange={e => setTariff({ ...tariff, max_fee: e.target.value ? Number(e.target.value) : 0 })}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 text-white text-sm font-bold focus:outline-none focus:border-amber-400/60 transition-all pl-7 pr-12 font-mono"
+                  />
+                  <span className="absolute right-3 text-zinc-500 text-xs font-bold">CLP</span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {[0, 5000, 8000, 10000, 15000, 20000].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setTariff({ ...tariff, max_fee: preset })}
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                        (tariff.max_fee || 0) === preset
+                          ? 'bg-amber-400 text-black border-amber-300 font-black shadow-sm shadow-amber-400/30'
+                          : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white hover:bg-white/10'
+                      }`}
+                    >
+                      {preset === 0 ? 'Sin Tope' : formatCLP(preset)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between">
                 {tariffSaved && (
                   <span className="text-sm text-emerald-400 font-semibold flex items-center gap-1.5 animate-fade-in">
@@ -2898,10 +4191,47 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         <ShiftClosureModal
           transactions={transactions.filter(t => !t.closure_id)}
           auditEvents={auditEvents}
+          closures={closures}
+          initialCash={initialCash}
           onConfirm={closeClosure}
           onClose={() => setClosureOpen(false)}
         />
       )}
+      {askInitialCashOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-card max-w-sm w-full p-8 rounded-3xl border border-white/10 shadow-2xl text-center">
+             <span className="text-5xl block mb-4">💰</span>
+             <h2 className="text-2xl font-black text-white mb-2">Apertura de Caja</h2>
+             <p className="text-sm text-zinc-400 mb-6 leading-relaxed">
+               Ingresa el <strong>monto inicial en efectivo</strong> dejado por el dueño o turno anterior para abrir la caja.
+             </p>
+             <form onSubmit={handleSaveInitialCash}>
+                <div className="relative mb-6">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={initialCashAmount}
+                    onChange={e => setInitialCashAmount(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl pl-8 pr-4 py-4 text-white text-lg font-bold focus:outline-none focus:border-amber-400/60 transition-all text-center"
+                    placeholder="Ej: 20000"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAskInitialCashOpen(false)} className="px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl text-xs transition-all w-1/3">
+                    Cancelar
+                  </button>
+                  <button type="submit" className="flex-1 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black py-3 rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20">
+                    Guardar y Continuar
+                  </button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
+
       {deletingVehicle && (
         <ActionAuthModal
           title="Eliminar Vehículo Erróneo"
@@ -2996,12 +4326,95 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
         </div>
       )}
 
+      {paymentUpdatedToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-500 text-black font-black px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs animate-scale-up border border-emerald-300">
+          <Check className="w-4 h-4 stroke-[3]" />
+          <span>{paymentUpdatedToast}</span>
+        </div>
+      )}
+
       {viewingClosureReceipt && (
         <ViewingClosureReceiptModal
           closure={viewingClosureReceipt}
+          orgName={profile.org_name}
           onClose={() => setViewingClosureReceipt(null)}
         />
       )}
+      {/* ── MODAL: DATOS DE PAGO / TRANSFERENCIA ── */}
+      {paymentDetailsModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+          <div className="glass-card rounded-3xl w-full max-w-md border border-amber-400/30 shadow-2xl bg-zinc-950 p-6 my-auto animate-scale-up">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-amber-400 text-lg">
+                  💳
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base">Datos de Facturación y Pago</h3>
+                  <p className="text-xs text-zinc-400">Renovación de suscripción ParkControl</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPaymentDetailsModalOpen(false)}
+                className="text-zinc-500 hover:text-white p-2 rounded-xl bg-white/5 border border-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4 text-xs">
+              <div className="bg-black/60 border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
+                  Transferencia Electrónica
+                </span>
+                <div className="grid grid-cols-2 gap-2 text-zinc-300">
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">Banco</span>
+                    <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.bankName}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">Tipo Cuenta</span>
+                    <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.accountType}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">N° Cuenta</span>
+                    <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.accountNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 block">RUT</span>
+                    <span className="font-mono font-bold text-white">{BANK_TRANSFER_DETAILS.rut}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-[10px] text-zinc-500 block">Titular</span>
+                    <span className="font-bold text-white">{BANK_TRANSFER_DETAILS.holderName}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-[10px] text-zinc-500 block">Email Comprobante</span>
+                    <span className="font-mono font-bold text-amber-400">{BANK_TRANSFER_DETAILS.email}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-white/5 border border-white/10 rounded-2xl text-[11px] text-zinc-400 leading-relaxed">
+                Una vez realizada la transferencia, envía el comprobante por WhatsApp indicando el nombre de tu estacionamiento (<strong>{profile.org_name}</strong>) para registrar la renovación de inmediato.
+              </div>
+
+              <a
+                href={`https://wa.me/${BANK_TRANSFER_DETAILS.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                  `Hola, te escribo desde "${profile.org_name}" para enviar el comprobante de pago de mi suscripción de ParkControl SaaS.`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Enviar Comprobante por WhatsApp</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
     </div>
   )
 }
