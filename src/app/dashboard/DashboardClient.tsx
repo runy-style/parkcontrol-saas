@@ -1360,7 +1360,11 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
     router.push('/login')
   }
 
+  const activePlateMessage = (plate: string, entryAt?: string) =>
+    `La patente ${plate} ya se encuentra activa${entryAt ? ` (ingresó a las ${formatTime(entryAt)})` : ''}. Debe finalizar su estadía antes de volver a ingresarla.`
+
   const addVehicle = async () => {
+    if (loadingAdd) return // Evita doble registro por Enter/clic repetido
     const plate = formatPlate(plateInput)
     if (!plate) { setError('Ingresa una patente.'); return }
     if (plate === 'RZGL43') {
@@ -1368,19 +1372,45 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
       return
     }
     if (plate.length < 5 || plate.length > 7) { setError('Patente inválida (5-7 caracteres).'); return }
-    if (vehicles.find(v => v.plate === plate)) { setError('Este vehículo ya está estacionado.'); return }
+
+    // 1. Verificación rápida contra el estado local
+    const localActive = vehicles.find(v => formatPlate(v.plate) === plate)
+    if (localActive) { setError(activePlateMessage(plate, localActive.entry_at)); return }
+
     setLoadingAdd(true)
-    const { error: e } = await supabase.from('vehicles').insert({
-      organization_id: orgId, plate, entry_at: new Date().toISOString(), operator_id: profile.id
-    })
-    if (e) {
-      setError('Error al registrar vehículo.')
-    } else {
-      setPlateInput('')
-      setError('')
-      await loadData() // Actualizar inmediatamente el estado local
+    try {
+      // 2. Verificación en la base de datos (por si el estado local está desactualizado)
+      const { data: existing, error: checkError } = await supabase
+        .from('vehicles')
+        .select('id, entry_at')
+        .eq('organization_id', orgId)
+        .eq('plate', plate)
+        .limit(1)
+
+      if (checkError) {
+        setError('Error al verificar la patente. Intenta nuevamente.')
+        return
+      }
+      if (existing && existing.length > 0) {
+        setError(activePlateMessage(plate, existing[0].entry_at))
+        await loadData()
+        return
+      }
+
+      const { error: e } = await supabase.from('vehicles').insert({
+        organization_id: orgId, plate, entry_at: new Date().toISOString(), operator_id: profile.id
+      })
+      if (e) {
+        // 23505 = violación de índice único (si se aplicó supabase-unique-plate.sql)
+        setError(e.code === '23505' ? activePlateMessage(plate) : 'Error al registrar vehículo.')
+      } else {
+        setPlateInput('')
+        setError('')
+        await loadData() // Actualizar inmediatamente el estado local
+      }
+    } finally {
+      setLoadingAdd(false)
     }
-    setLoadingAdd(false)
   }
 
   const openCheckout = (vehicle: Vehicle, elapsed: number, fee: number) => setCheckout({ vehicle, elapsed, fee })
@@ -2019,6 +2049,19 @@ export default function DashboardClient({ profile, tariff: initialTariff }: Prop
                       )}
                     </button>
                   </div>
+
+                  {/* Active Plate Warning (live while typing) */}
+                  {plateInput.length >= 5 && !error && (() => {
+                    const typed = formatPlate(plateInput)
+                    const active = vehicles.find(v => formatPlate(v.plate) === typed)
+                    if (!active) return null
+                    return (
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-orange-300 bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2 animate-fade-in">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-orange-400" />
+                        <span>{activePlateMessage(typed, active.entry_at)}</span>
+                      </div>
+                    )
+                  })()}
 
                   {/* VIP Plate Warning Banner */}
                   {formatPlate(plateInput) === 'RZGL43' && (
